@@ -1,0 +1,8 @@
+{
+  "character": "fox",
+  "priority": [
+    "<condition>_<season>_<time>",
+    "<condition>_<time>",
+    "<condition>_day"
+  ]
+}

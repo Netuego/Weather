@@ -1,6 +1,6 @@
 {
-    "name": "weather_fox_portrait_light",
-    "short_name": "weather_fox_portrait_light",
+    "name": "weather_fox_android_mvp",
+    "short_name": "weather_fox_android_mvp",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

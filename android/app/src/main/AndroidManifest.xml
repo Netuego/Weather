@@ -1,6 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="weather_fox_portrait_light"
+        android:label="weather_fox_android_mvp"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity
