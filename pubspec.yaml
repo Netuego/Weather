@@ -1,7 +1,7 @@
 name: weather_fox_android_mvp
-description: Android-focused MVP with seasonal scenes (WebP) and offline caching
+description: Android-focused MVP with seasonal scenes (WebP), offline cache, and multi-characters (fox/spider/robot)
 publish_to: "none"
-version: 0.7.0+1
+version: 0.8.0+1
 
 environment:
   sdk: ">=3.3.0 <4.0.0"
@@ -22,39 +22,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/scenes_manifest.json
-    - assets/images/fox_clear_day.webp
-    - assets/images/fox_clear_evening.webp
-    - assets/images/fox_clear_morning.webp
-    - assets/images/fox_clear_night.webp
-    - assets/images/fox_clouds_autumn_day.webp
-    - assets/images/fox_clouds_autumn_evening.webp
-    - assets/images/fox_clouds_autumn_morning.webp
-    - assets/images/fox_clouds_autumn_night.webp
-    - assets/images/fox_clouds_day.webp
-    - assets/images/fox_clouds_dry_day.webp
-    - assets/images/fox_clouds_dry_evening.webp
-    - assets/images/fox_clouds_dry_morning.webp
-    - assets/images/fox_clouds_dry_night.webp
-    - assets/images/fox_clouds_evening.webp
-    - assets/images/fox_clouds_morning.webp
-    - assets/images/fox_clouds_night.webp
-    - assets/images/fox_clouds_summer_day.webp
-    - assets/images/fox_clouds_summer_evening.webp
-    - assets/images/fox_clouds_summer_morning.webp
-    - assets/images/fox_clouds_summer_night.webp
-    - assets/images/fox_clouds_wet_day.webp
-    - assets/images/fox_clouds_wet_evening.webp
-    - assets/images/fox_clouds_wet_morning.webp
-    - assets/images/fox_clouds_wet_night.webp
-    - assets/images/fox_fog_day.webp
-    - assets/images/fox_fog_evening.webp
-    - assets/images/fox_fog_morning.webp
-    - assets/images/fox_fog_night.webp
-    - assets/images/fox_rain_day.webp
-    - assets/images/fox_rain_evening.webp
-    - assets/images/fox_rain_morning.webp
-    - assets/images/fox_rain_night.webp
-    - assets/images/fox_snow_day.webp
-    - assets/images/fox_snow_evening.webp
-    - assets/images/fox_snow_morning.webp
-    - assets/images/fox_snow_night.webp
+    - assets/images/

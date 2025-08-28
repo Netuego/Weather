@@ -1,4 +1,3 @@
-
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -9,6 +8,7 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'secrets.dart';
+import 'characters.dart';
 
 class DayForecast {
   final DateTime date;
@@ -21,8 +21,12 @@ class DayForecast {
     "temp": temp,
     "condition": condition,
   };
-  static DayForecast fromJson(Map<String, dynamic> j) =>
-      DayForecast(DateTime.parse(j["date"]), (j["temp"] as num).toDouble(), j["condition"]);
+
+  static DayForecast fromJson(Map<String, dynamic> j) => DayForecast(
+    DateTime.parse(j["date"]),
+    (j["temp"] as num).toDouble(),
+    j["condition"],
+  );
 }
 
 class WeatherBundle {
@@ -32,21 +36,31 @@ class WeatherBundle {
   final List<DayForecast> nextDays;
   final double lat;
   final double lon;
-  WeatherBundle({required this.city, required this.temperature, required this.condition, required this.nextDays, required this.lat, required this.lon});
+
+  WeatherBundle({
+    required this.city,
+    required this.temperature,
+    required this.condition,
+    required this.nextDays,
+    required this.lat,
+    required this.lon,
+  });
 
   Map<String, dynamic> toJson() => {
     "city": city,
     "temperature": temperature,
     "condition": condition,
-    "nextDays": nextDays.map((e)=> e.toJson()).toList(),
+    "nextDays": nextDays.map((e) => e.toJson()).toList(),
     "lat": lat,
     "lon": lon,
   };
+
   static WeatherBundle fromJson(Map<String, dynamic> j) => WeatherBundle(
     city: j["city"],
     temperature: (j["temperature"] as num).toDouble(),
     condition: j["condition"],
-    nextDays: (j["nextDays"] as List).map((e)=> DayForecast.fromJson(e)).toList(),
+    nextDays:
+    (j["nextDays"] as List).map((e) => DayForecast.fromJson(e)).toList(),
     lat: (j["lat"] as num).toDouble(),
     lon: (j["lon"] as num).toDouble(),
   );
@@ -57,39 +71,66 @@ class WeatherRepository {
   WeatherRepository(this.apiKey);
 
   Future<WeatherBundle> fetchForCity(String city) async {
-    final curUrl = "https://api.openweathermap.org/data/2.5/weather?q=$city&units=metric&lang=ru&appid=$apiKey";
-    final curRes = await http.get(Uri.parse(curUrl)).timeout(const Duration(seconds: 8));
-    if (curRes.statusCode != 200) throw Exception("Current weather error ${curRes.statusCode}");
+    final curUrl =
+        "https://api.openweathermap.org/data/2.5/weather?q=$city&units=metric&lang=ru&appid=$apiKey";
+    final curRes =
+    await http.get(Uri.parse(curUrl)).timeout(const Duration(seconds: 8));
+    if (curRes.statusCode != 200) {
+      throw Exception("Current weather error ${curRes.statusCode}");
+    }
     final cur = json.decode(curRes.body);
     final temp = (cur["main"]["temp"] as num).toDouble();
     final cond = cur["weather"][0]["main"] as String;
 
-    final fcUrl = "https://api.openweathermap.org/data/2.5/forecast?q=$city&units=metric&lang=ru&appid=$apiKey";
-    final fcRes = await http.get(Uri.parse(fcUrl)).timeout(const Duration(seconds: 10));
-    if (fcRes.statusCode != 200) throw Exception("Forecast error ${fcRes.statusCode}");
+    final fcUrl =
+        "https://api.openweathermap.org/data/2.5/forecast?q=$city&units=metric&lang=ru&appid=$apiKey";
+    final fcRes =
+    await http.get(Uri.parse(fcUrl)).timeout(const Duration(seconds: 10));
+    if (fcRes.statusCode != 200) {
+      throw Exception("Forecast error ${fcRes.statusCode}");
+    }
     final data = json.decode(fcRes.body);
     final List list = data["list"];
 
-    Map<String, Map<String, dynamic>> daily = {};
+    final Map<String, Map<String, dynamic>> daily = {};
     for (final item in list) {
-      final dt = DateTime.fromMillisecondsSinceEpoch(item["dt"] * 1000, isUtc: true).toLocal();
+      final dt = DateTime.fromMillisecondsSinceEpoch(item["dt"] * 1000,
+          isUtc: true)
+          .toLocal();
       final key = DateFormat('yyyy-MM-dd').format(dt);
       final hour = dt.hour;
       final diff = (15 - hour).abs();
       final t = (item["main"]["temp"] as num).toDouble();
       final c = item["weather"][0]["main"] as String;
       if (!daily.containsKey(key) || diff < daily[key]!["diff"]) {
-        daily[key] = {"date": DateTime(dt.year, dt.month, dt.day), "temp": t, "cond": c, "diff": diff};
+        daily[key] = {
+          "date": DateTime(dt.year, dt.month, dt.day),
+          "temp": t,
+          "cond": c,
+          "diff": diff,
+        };
       }
     }
     final days = daily.values.toList()
-      ..sort((a,b)=> (a["date"] as DateTime).compareTo(b["date"] as DateTime));
-    final forecasts = days.take(7).map((m)=> DayForecast(m["date"], (m["temp"] as num).toDouble(), m["cond"] as String)).toList();
+      ..sort((a, b) =>
+          (a["date"] as DateTime).compareTo(b["date"] as DateTime));
+    final forecasts = days
+        .take(7)
+        .map((m) =>
+        DayForecast(m["date"], (m["temp"] as num).toDouble(), m["cond"]))
+        .toList();
 
     final lat = (data["city"]["coord"]["lat"] as num).toDouble();
     final lon = (data["city"]["coord"]["lon"] as num).toDouble();
 
-    return WeatherBundle(city: data["city"]["name"], temperature: temp, condition: cond, nextDays: forecasts, lat: lat, lon: lon);
+    return WeatherBundle(
+      city: data["city"]["name"],
+      temperature: temp,
+      condition: cond,
+      nextDays: forecasts,
+      lat: lat,
+      lon: lon,
+    );
   }
 }
 
@@ -105,7 +146,10 @@ class WeatherFoxApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Weather Fox',
-      theme: ThemeData(useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3A6E86))),
+      theme: ThemeData(
+        useMaterial3: true,
+        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3A6E86)),
+      ),
       home: const WeatherScreen(defaultCity: "Москва"),
     );
   }
@@ -114,7 +158,8 @@ class WeatherFoxApp extends StatelessWidget {
 class WeatherScreen extends StatefulWidget {
   final String defaultCity;
   const WeatherScreen({super.key, required this.defaultCity});
-  @override State<WeatherScreen> createState() => _WeatherScreenState();
+  @override
+  State<WeatherScreen> createState() => _WeatherScreenState();
 }
 
 class _WeatherScreenState extends State<WeatherScreen> {
@@ -126,6 +171,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
   Set<String> _assetKeys = {};
   DateTime? _lastUpdated;
 
+  String characterId = CharacterIds.fox;
+
   static const _prefCity = "last_city";
   static const _prefWeather = "last_weather_json";
   static const _prefUpdated = "last_updated_ms";
@@ -136,6 +183,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
     repo = WeatherRepository(openWeatherApiKey);
     city = widget.defaultCity;
     _loadAssetManifest();
+    loadSavedCharacter().then((id) {
+      if (mounted) setState(() => characterId = id);
+    });
     _loadFromPrefs().then((_) => _load());
   }
 
@@ -166,7 +216,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
         setState(() {
           bundle = b;
           city = savedCity ?? city;
-          _lastUpdated = ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : null;
+          _lastUpdated =
+          ts != null ? DateTime.fromMillisecondsSinceEpoch(ts) : null;
           loading = false;
         });
       } catch (_) {}
@@ -174,18 +225,18 @@ class _WeatherScreenState extends State<WeatherScreen> {
   }
 
   Future<void> _load() async {
-    setState(()=> {loading = true, error = null});
+    setState(() => {loading = true, error = null});
     try {
       final b = await repo.fetchForCity(city);
-      setState(()=> bundle = b);
+      setState(() => bundle = b);
       await _saveToPrefs(b);
     } catch (e) {
       if (bundle == null) {
         await _loadFromPrefs();
       }
-      setState(()=> error = e.toString());
+      setState(() => error = e.toString());
     } finally {
-      setState(()=> loading = false);
+      setState(() => loading = false);
     }
   }
 
@@ -199,13 +250,18 @@ class _WeatherScreenState extends State<WeatherScreen> {
 
   String conditionKey(String cond) {
     switch (cond) {
-      case "Clear": return "clear";
-      case "Clouds": return "clouds";
+      case "Clear":
+        return "clear";
+      case "Clouds":
+        return "clouds";
       case "Rain":
       case "Drizzle":
-      case "Thunderstorm": return "rain";
-      case "Snow": return "snow";
-      default: return "fog";
+      case "Thunderstorm":
+        return "rain";
+      case "Snow":
+        return "snow";
+      default:
+        return "fog";
     }
   }
 
@@ -239,17 +295,17 @@ class _WeatherScreenState extends State<WeatherScreen> {
     final t = appTimeOfDay(now);
     final s = seasonTag(b.lat, now, b.nextDays);
     final candidates = [
-      "assets/images/fox_${c}_${s}_${t}.webp",
-      "assets/images/fox_${c}_${t}.webp",
-      "assets/images/fox_${c}_day.webp",
+      "assets/images/${characterId}_${c}_${s}_${t}.webp",
+      "assets/images/${characterId}_${c}_${t}.webp",
+      "assets/images/${characterId}_${c}_day.webp",
     ];
     for (final p in candidates) {
       if (_assetKeys.contains(p)) return p;
     }
-    return "assets/images/fox_clouds_day.webp";
+    return "assets/images/${characterId}_clouds_day.webp";
   }
 
-  String weekdayRu(DateTime d) => DateFormat('EE','ru').format(d).toUpperCase();
+  String weekdayRu(DateTime d) => DateFormat('EE', 'ru').format(d).toUpperCase();
 
   String _updatedLabel() {
     if (_lastUpdated == null) return "";
@@ -271,93 +327,191 @@ class _WeatherScreenState extends State<WeatherScreen> {
           Positioned.fill(
             child: b == null
                 ? const ColoredBox(color: Color(0xFF355F5B))
-                : Image.asset(sceneForSeasonal(b.condition, now, b), fit: BoxFit.cover),
+                : Image.asset(
+              sceneForSeasonal(b.condition, now, b),
+              fit: BoxFit.cover,
+            ),
           ),
-          Positioned.fill(child: Container(color: Colors.black.withOpacity(0.10))),
-
+          Positioned.fill(
+            child: Container(color: Colors.black.withOpacity(0.10)),
+          ),
           SafeArea(
             child: Padding(
               padding: const EdgeInsets.all(16),
-              child: loading && b == null
+              child: (loading && b == null)
                   ? const Center(child: CircularProgressIndicator())
                   : Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (b != null) ...[
+                    Row(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        if (b != null) ...[
-                          Row(
+                        Expanded(
+                          child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
+                              Text(
+                                b.city,
+                                style: const TextStyle(
+                                  fontSize: 32,
+                                  fontWeight: FontWeight.w800,
+                                  color: Colors.white,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              if (_updatedLabel().isNotEmpty)
+                                Text(
+                                  _updatedLabel(),
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                  ),
+                                ),
+                              const SizedBox(height: 10),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 12,
+                                  vertical: 10,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: Colors.white.withOpacity(0.78),
+                                  borderRadius: BorderRadius.circular(16),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
                                   children: [
-                                    Text(b.city, style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w800, color: Colors.white)),
-                                    const SizedBox(height: 4),
-                                    if (_updatedLabel().isNotEmpty)
-                                      Text(_updatedLabel(), style: const TextStyle(color: Colors.white70)),
-                                    const SizedBox(height: 10),
-                                    Container(
-                                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                                      decoration: BoxDecoration(color: Colors.white.withOpacity(0.78), borderRadius: BorderRadius.circular(16)),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          for (final d in b.nextDays.take(7))
-                                            Padding(
-                                              padding: const EdgeInsets.symmetric(horizontal: 8),
-                                              child: Column(mainAxisSize: MainAxisSize.min, children: [
-                                                Text(weekdayRu(d.date), style: const TextStyle(fontWeight: FontWeight.w600)),
-                                                const SizedBox(height: 6),
-                                                Icon(Icons.circle, size: 10, color: Colors.black26),
-                                                const SizedBox(height: 6),
-                                                Text("${d.temp.round()}°", style: const TextStyle(fontSize: 12)),
-                                              ]),
+                                    for (final d in b.nextDays.take(7))
+                                      Padding(
+                                        padding:
+                                        const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                        ),
+                                        child: Column(
+                                          mainAxisSize: MainAxisSize.min,
+                                          children: [
+                                            Text(
+                                              weekdayRu(d.date),
+                                              style: const TextStyle(
+                                                fontWeight:
+                                                FontWeight.w600,
+                                              ),
                                             ),
-                                        ],
+                                            const SizedBox(height: 6),
+                                            Icon(
+                                              Icons.circle,
+                                              size: 10,
+                                              color: Colors.black26,
+                                            ),
+                                            const SizedBox(height: 6),
+                                            Text(
+                                              "${d.temp.round()}°",
+                                              style: const TextStyle(
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                          ],
+                                        ),
                                       ),
-                                    ),
                                   ],
                                 ),
                               ),
-                              const SizedBox(width: 12),
-                              Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text("${b.temperature.round()}°", style: const TextStyle(fontSize: 56, fontWeight: FontWeight.w800, color: Colors.white, height: 1.0)),
-                                  const SizedBox(height: 6),
-                                  Text(conditionKey(b.condition), style: const TextStyle(color: Colors.white70)),
-                                ],
-                              ),
                             ],
                           ),
-                        ],
-                        const Spacer(),
-                        Align(
-                          alignment: Alignment.bottomRight,
-                          child: FilledButton.tonal(
-                            onPressed: () async {
-                              final ctrl = TextEditingController(text: city);
-                              final newCity = await showDialog<String>(context: context, builder: (ctx){
-                                return AlertDialog(
-                                  title: const Text("Город"),
-                                  content: TextField(controller: ctrl, decoration: const InputDecoration(hintText: "Например, Москва")),
-                                  actions: [
-                                    TextButton(onPressed: ()=> Navigator.pop(ctx), child: const Text("Отмена")),
-                                    FilledButton(onPressed: ()=> Navigator.pop(ctx, ctrl.text.trim()), child: const Text("OK")),
-                                  ],
-                                );
-                              });
-                              if (newCity != null && newCity.isNotEmpty) {
-                                city = newCity;
-                                setState((){});
-                                await _load();
-                              }
-                            },
-                            child: const Text("Изменить город"),
-                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Column(
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            Text(
+                              "${b.temperature.round()}°",
+                              style: const TextStyle(
+                                fontSize: 56,
+                                fontWeight: FontWeight.w800,
+                                color: Colors.white,
+                                height: 1.0,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              conditionKey(b.condition),
+                              style: const TextStyle(
+                                color: Colors.white70,
+                              ),
+                            ),
+                          ],
                         ),
                       ],
                     ),
+                  ],
+                  const Spacer(),
+                  Align(
+                    alignment: Alignment.bottomRight,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        FilledButton.tonal(
+                          onPressed: () async {
+                            final ctrl =
+                            TextEditingController(text: city);
+                            final newCity = await showDialog<String>(
+                              context: context,
+                              builder: (ctx) {
+                                return AlertDialog(
+                                  title: const Text("Город"),
+                                  content: TextField(
+                                    controller: ctrl,
+                                    decoration: const InputDecoration(
+                                      hintText: "Например, Москва",
+                                    ),
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () =>
+                                          Navigator.pop(ctx),
+                                      child: const Text("Отмена"),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () => Navigator.pop(
+                                        ctx,
+                                        ctrl.text.trim(),
+                                      ),
+                                      child: const Text("OK"),
+                                    ),
+                                  ],
+                                );
+                              },
+                            );
+                            if (newCity != null &&
+                                newCity.isNotEmpty) {
+                              city = newCity;
+                              setState(() {});
+                              await _load();
+                            }
+                          },
+                          child: const Text("Изменить город"),
+                        ),
+                        const SizedBox(width: 8),
+                        FilledButton.tonal(
+                          onPressed: () async {
+                            final picked =
+                            await Navigator.of(context).push<String>(
+                              MaterialPageRoute(
+                                builder: (_) =>
+                                    CharacterSelectScreen(
+                                        selectedId: characterId),
+                              ),
+                            );
+                            if (picked != null) {
+                              setState(() => characterId = picked);
+                            }
+                          },
+                          child: const Text("Персонаж"),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
