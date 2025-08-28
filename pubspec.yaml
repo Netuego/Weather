@@ -1,0 +1,35 @@
+name: weather_fox_portrait_light
+description: Minimal portrait static app with fox scenes for clear/clouds/rain
+publish_to: "none"
+version: 0.5.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.1
+  intl: ^0.19.0
+  shared_preferences: ^2.3.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/images/fox_clear_morning.png
+    - assets/images/fox_clear_day.png
+    - assets/images/fox_clear_evening.png
+    - assets/images/fox_clear_night.png
+    - assets/images/fox_clouds_morning.png
+    - assets/images/fox_clouds_day.png
+    - assets/images/fox_clouds_evening.png
+    - assets/images/fox_clouds_night.png
+    - assets/images/fox_rain_morning.png
+    - assets/images/fox_rain_day.png
+    - assets/images/fox_rain_evening.png
+    - assets/images/fox_rain_night.png
