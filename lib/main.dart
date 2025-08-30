@@ -12,21 +12,17 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:palette_generator/palette_generator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'secrets.dart';          // const openWeatherApiKey = "...";
-import 'characters.dart';       // CharacterIds.fox, etc.
-
-const String kBuildTag = "v12";
+import 'secrets.dart';        // const openWeatherApiKey = "...";
+import 'characters.dart';     // CharacterIds.fox, "robot", "spider", ...
 
 // ===================== DATA =====================
-
 class DayForecast {
   final DateTime date;
   final double temp;
   final String condition;
   final double? minT;
   final double? maxT;
-  final double? pop; // вероятность осадков (0..1)
-
+  final double? pop; // 0..1
   DayForecast(this.date, this.temp, this.condition, {this.minT, this.maxT, this.pop});
 
   Map<String, dynamic> toJson() => {
@@ -72,7 +68,6 @@ class WeatherBundle {
   final List<HourForecast> hours;
   final double lat;
   final double lon;
-
   WeatherBundle({
     required this.city,
     required this.temperature,
@@ -114,15 +109,13 @@ class GeoSuggestion {
   String displayName() => state == null || state!.isEmpty ? "$name, $country" : "$name, $state, $country";
 }
 
-// ===================== REPO =====================
-
+// ===================== REPOSITORY =====================
 class WeatherRepository {
   final String apiKey;
   WeatherRepository(this.apiKey);
 
   Future<WeatherBundle> fetchForCity(String city) async {
-    final curUrl =
-        "https://api.openweathermap.org/data/2.5/weather?q=$city&units=metric&lang=ru&appid=$apiKey";
+    final curUrl = "https://api.openweathermap.org/data/2.5/weather?q=$city&units=metric&lang=ru&appid=$apiKey";
     final curRes = await http.get(Uri.parse(curUrl)).timeout(const Duration(seconds: 10));
     if (curRes.statusCode != 200) throw Exception("Ошибка текущей погоды (${curRes.statusCode})");
     final cur = json.decode(curRes.body);
@@ -265,7 +258,7 @@ class WeatherRepository {
           for (final item in list) {
             final dt = DateTime.fromMillisecondsSinceEpoch(item["dt"] * 1000, isUtc: true).toLocal();
             final key = DateFormat('yyyy-MM-dd').format(dt);
-            final diff = (15 - dt.hour).abs();
+            final diff = (15 - dt.hour).abs(); // ближе к 15:00
             final t = (item["main"]["temp"] as num).toDouble();
             final c = item["weather"][0]["main"] as String;
             final pop = (item["pop"] as num?)?.toDouble() ?? 0.0;
@@ -304,16 +297,13 @@ class WeatherRepository {
       }
     }
 
-    // Нормализуем к 12 часам, начиная с текущего часа (HH:00).
     hours = _toHourly12(hours);
-
     if (days7.length > 7) days7 = days7.take(7).toList();
     return WeatherBundle(city: "", temperature: 0, condition: "", nextDays: days7, hours: hours, lat: lat, lon: lon);
   }
 
   Future<String?> reverseCity(double lat, double lon) async {
-    final url =
-        "https://api.openweathermap.org/geo/1.0/reverse?lat=$lat&lon=$lon&limit=1&appid=$apiKey";
+    final url = "https://api.openweathermap.org/geo/1.0/reverse?lat=$lat&lon=$lon&limit=1&appid=$apiKey";
     final res = await http.get(Uri.parse(url)).timeout(const Duration(seconds: 8));
     if (res.statusCode != 200) return null;
     final j = json.decode(res.body);
@@ -343,7 +333,7 @@ class WeatherRepository {
   }
 }
 
-// Нормализуем к 12 часам, начиная с текущего часа (HH:00).
+// Нормализуем к 12 часам, начиная с текущего часа (HH:00)
 List<HourForecast> _toHourly12(List<HourForecast> src) {
   if (src.isEmpty) return src;
   src.sort((a, b) => a.time.compareTo(b.time));
@@ -394,8 +384,7 @@ List<HourForecast> _toHourly12(List<HourForecast> src) {
   return out;
 }
 
-// ===================== APP ROOT =====================
-
+// ===================== APP =====================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('ru');
@@ -404,7 +393,7 @@ void main() async {
     statusBarColor: Colors.transparent,
     systemNavigationBarColor: Colors.transparent,
   ));
-  debugPrint("WeatherFox build: $kBuildTag");
+  debugPrint("WeatherFox build: v14");
   runApp(const WeatherFoxApp());
 }
 
@@ -415,10 +404,7 @@ class WeatherFoxApp extends StatelessWidget {
     return MaterialApp(
       title: 'Weather Fox',
       debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3A6E86)),
-      ),
+      theme: ThemeData(useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3A6E86))),
       home: const WeatherScreen(defaultCity: "Москва"),
     );
   }
@@ -450,11 +436,12 @@ class _WeatherScreenState extends State<WeatherScreen> {
   late final ScrollController _hourCtrl;
   int _selectedDayIndex = 0;
 
-  static const double _hourBoxHeight = 76.0; // ниже, как дневной
+  static const double _rowBoxHeight = 72.0; // одинаковая высота для верхнего/нижнего блоков
   Color _accentColor = const Color(0xFF5DA3C4);
   String? _currentScene;
   bool _paletteBusy = false;
   Timer? _autoTimer;
+  bool _isPulling = false;
 
   @override
   void initState() {
@@ -523,55 +510,32 @@ class _WeatherScreenState extends State<WeatherScreen> {
   }
 
   Future<void> _load({bool soft = false}) async {
-    if (!soft) {
-      setState(() {
-        loading = true;
-        error = null;
-      });
-    } else {
-      error = null;
-    }
+    if (!soft) setState(() { loading = true; error = null; });
     try {
       final b = await repo.fetchForCity(city);
-      setState(() {
-        bundle = b;
-        _selectedDayIndex = 0;
-      });
+      setState(() { bundle = b; _selectedDayIndex = 0; });
       await _saveToPrefs(b);
       if (_hourCtrl.hasClients) _hourCtrl.jumpTo(0);
     } catch (e) {
       if (bundle == null) await _loadFromPrefs();
       setState(() => error = e.toString());
     } finally {
-      if (!soft) {
-        setState(() {
-          loading = false;
-        });
-      }
+      if (!soft) setState(() { loading = false; });
     }
   }
 
   Future<void> _loadByCoords(double lat, double lon, {String? named}) async {
-    setState(() {
-      loading = true;
-      error = null;
-    });
+    setState(() { loading = true; error = null; });
     try {
       final b = await repo.fetchByCoords(lat, lon);
-      setState(() {
-        bundle = b;
-        city = named ?? b.city;
-        _selectedDayIndex = 0;
-      });
+      setState(() { bundle = b; city = named ?? b.city; _selectedDayIndex = 0; });
       await _saveToPrefs(b);
       if (_hourCtrl.hasClients) _hourCtrl.jumpTo(0);
     } catch (e) {
       if (bundle == null) await _loadFromPrefs();
       setState(() => error = e.toString());
     } finally {
-      setState(() {
-        loading = false;
-      });
+      setState(() { loading = false; });
     }
   }
 
@@ -585,34 +549,24 @@ class _WeatherScreenState extends State<WeatherScreen> {
 
   String conditionKey(String cond) {
     switch (cond) {
-      case "Clear":
-        return "clear";
-      case "Clouds":
-        return "clouds";
+      case "Clear": return "clear";
+      case "Clouds": return "clouds";
       case "Rain":
       case "Drizzle":
-      case "Thunderstorm":
-        return "rain";
-      case "Snow":
-        return "snow";
-      default:
-        return "fog";
+      case "Thunderstorm": return "rain";
+      case "Snow": return "snow";
+      default: return "fog";
     }
   }
 
   IconData _iconFor(String cond) {
     switch (cond) {
       case "Rain":
-      case "Drizzle":
-        return Icons.cloud; // вместо зонтика
-      case "Thunderstorm":
-        return Icons.thunderstorm;
-      case "Snow":
-        return Icons.ac_unit;
-      case "Clear":
-        return Icons.wb_sunny;
-      default:
-        return Icons.cloud;
+      case "Drizzle": return Icons.cloud; // вместо зонтика
+      case "Thunderstorm": return Icons.thunderstorm;
+      case "Snow": return Icons.ac_unit;
+      case "Clear": return Icons.wb_sunny;
+      default: return Icons.cloud;
     }
   }
 
@@ -638,12 +592,10 @@ class _WeatherScreenState extends State<WeatherScreen> {
     return _seasonFour(now, north: lat > 0);
   }
 
-  // Nested folders support + flat fallback
   String sceneForSeasonal(String cond, DateTime now, WeatherBundle b) {
     final c = conditionKey(cond);
     final t = appTimeOfDay(now);
     final s = seasonTag(b.lat, now, b.nextDays);
-
     final wanted = [
       "assets/images/${characterId}/${characterId}_${c}_${s}_${t}.webp",
       "assets/images/${characterId}/${characterId}_${c}_${t}.webp",
@@ -655,11 +607,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
     for (final p in wanted) {
       if (_assetKeys.contains(p)) return p;
     }
-
     final byChar = _assetKeys.where((k) =>
-    k.startsWith("assets/images/${characterId}/") ||
-        k.startsWith("assets/images/${characterId}_")).toList();
-
+    k.startsWith("assets/images/${characterId}/") || k.startsWith("assets/images/${characterId}_")).toList();
     if (byChar.isNotEmpty) {
       final preferred = byChar.where((k) => k.contains("_${c}_")).toList();
       if (preferred.isNotEmpty) {
@@ -669,11 +618,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
       }
       return byChar.first;
     }
-
-    // Фолбэк на лисёнка (nested/flat)
     final fox = _assetKeys.firstWhere(
-          (k) => k.startsWith("assets/images/${CharacterIds.fox}/") ||
-          k.startsWith("assets/images/${CharacterIds.fox}_"),
+          (k) => k.startsWith("assets/images/${CharacterIds.fox}/") || k.startsWith("assets/images/${CharacterIds.fox}_"),
       orElse: () => "assets/images/${CharacterIds.fox}/${CharacterIds.fox}_clouds_day.webp",
     );
     return fox;
@@ -683,20 +629,13 @@ class _WeatherScreenState extends State<WeatherScreen> {
   String _capitalize(String s) => s.isEmpty ? s : (s[0].toUpperCase() + s.substring(1));
   String _condRu(String c) {
     switch (c) {
-      case "Clear":
-        return "ясно";
-      case "Clouds":
-        return "облачно";
-      case "Rain":
-        return "дождь";
-      case "Drizzle":
-        return "морось";
-      case "Thunderstorm":
-        return "гроза";
-      case "Snow":
-        return "снег";
-      default:
-        return c.toLowerCase();
+      case "Clear": return "ясно";
+      case "Clouds": return "облачно";
+      case "Rain": return "дождь";
+      case "Drizzle": return "морось";
+      case "Thunderstorm": return "гроза";
+      case "Snow": return "снег";
+      default: return c.toLowerCase();
     }
   }
 
@@ -720,6 +659,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
     return "${d.temp.round()}° • $cond";
   }
 
+  // ------- UI -------
   @override
   Widget build(BuildContext context) {
     final b = bundle;
@@ -730,7 +670,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Background image
+          // Background
           Positioned.fill(
             child: b == null
                 ? const ColoredBox(color: Color(0xFF355F5B))
@@ -740,181 +680,171 @@ class _WeatherScreenState extends State<WeatherScreen> {
               return Image.asset(scene, fit: BoxFit.cover, key: ValueKey(scene));
             }),
           ),
-          // --- Overlay panel behind scroll to avoid "transparent gap" on pull ---
-          // Это заполняет пространство под списком, чтобы при перетягивании вниз
-          // не просвечивался фон сцены.
-          Positioned.fill(child: Container(color: Colors.black.withOpacity(0.10))),
           SafeArea(
-            child: Stack(
-              children: [
-                RefreshIndicator(
-                  backgroundColor: Colors.transparent,
-                  color: Colors.white,
-                  onRefresh: () => _load(soft: true),
-                  child: ListView(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(16),
-                    children: [
-                      if (loading && b == null)
-                        const Center(
-                            child: Padding(
-                              padding: EdgeInsets.all(32),
-                              child: CircularProgressIndicator(),
-                            )),
-                      if (!loading && b == null) ...[
-                        const SizedBox(height: 24),
-                        _glass(
-                          padding: const EdgeInsets.all(16),
-                          child: Column(
-                            children: const [
-                              SizedBox(height: 8),
-                              Icon(Icons.cloud_off, size: 44, color: Colors.white70),
-                              SizedBox(height: 12),
-                              Text('Нет данных',
-                                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-                              SizedBox(height: 6),
-                              Text('Проверьте сеть, выберите город или потяните вниз, чтобы обновить',
-                                  textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
-                              SizedBox(height: 8),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-                      if (b != null) ...[
-                        // Header
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Align(alignment: Alignment.topRight, child: _TinyThreeDots(onTap: _openSettings)),
-                            const SizedBox(height: 6),
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment: CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        b.city,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                            fontSize: 34, fontWeight: FontWeight.w800, color: Colors.white),
-                                      ),
-                                      const SizedBox(height: 2),
-                                      if (_updatedLabel().isNotEmpty)
-                                        Text(_updatedLabel(), style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                                    ],
-                                  ),
-                                ),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.end,
-                                  children: [
-                                    Row(
-                                      children: [
-                                        Text("${b.temperature.round()}°",
-                                            style: const TextStyle(
-                                                fontSize: 58, fontWeight: FontWeight.w800, color: Colors.white, height: 1.0)),
-                                        const SizedBox(width: 8),
-                                        Icon(_iconFor(b.condition), size: 28, color: Colors.white),
-                                      ],
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(_capitalize(_condRu(b.condition)),
-                                        style: const TextStyle(color: Colors.white70)),
-                                  ],
-                                ),
-                              ],
-                            ),
+            child: RefreshIndicator(
+              backgroundColor: Colors.transparent,
+              color: Colors.white,
+              onRefresh: () => _load(soft: true),
+              child: NotificationListener<ScrollNotification>(
+                onNotification: (n) {
+                  final atTop = n.metrics.pixels <= n.metrics.minScrollExtent + 0.5;
+                  if (n is OverscrollNotification && n.overscroll < 0 && atTop) {
+                    if (!_isPulling) setState(() => _isPulling = true);
+                  } else if (n is ScrollEndNotification || (n is ScrollUpdateNotification && !atTop)) {
+                    if (_isPulling) setState(() => _isPulling = false);
+                  }
+                  return false;
+                },
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  padding: const EdgeInsets.all(16),
+                  children: [
+                    if (loading && b == null)
+                      const Center(child: Padding(padding: EdgeInsets.all(32), child: CircularProgressIndicator())),
+                    if (!loading && b == null) ...[
+                      const SizedBox(height: 24),
+                      _glass(
+                        disableBlur: false,
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          children: const [
+                            SizedBox(height: 8),
+                            Icon(Icons.cloud_off, size: 44, color: Colors.white70),
+                            SizedBox(height: 12),
+                            Text('Нет данных', style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                            SizedBox(height: 6),
+                            Text('Проверьте сеть, выберите город или потяните вниз, чтобы обновить',
+                                textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
+                            SizedBox(height: 8),
                           ],
                         ),
-                        const SizedBox(height: 8),
-
-                        // Hourly (today) or 2-line summary (other day)
-                        SizedBox(
-                          height: _hourBoxHeight,
-                          child: LayoutBuilder(
-                            builder: (c, cc) {
-                              final isToday = _selectedDayIndex == 0;
-                              if (isToday) {
-                                const double visibleSlots = 5;
-                                final double slotW = cc.maxWidth / visibleSlots;
-                                final list = b!.hours;
-                                const int count = 12; // всегда 12 часов
-                                return _glass(
-                                  padding: const EdgeInsets.symmetric(vertical: 8),
-                                  child: ListView.builder(
-                                    controller: _hourCtrl,
-                                    scrollDirection: Axis.horizontal,
-                                    physics: const BouncingScrollPhysics(),
-                                    padding: EdgeInsets.zero,
-                                    itemCount: count,
-                                    itemBuilder: (context, index) {
-                                      final h = list[index < list.length ? index : (list.length - 1)];
-                                      final hh = DateTime(h.time.year, h.time.month, h.time.day, h.time.hour);
-                                      return SizedBox(
-                                        width: slotW,
-                                        child: Column(
-                                          mainAxisAlignment: MainAxisAlignment.center,
-                                          children: [
-                                            Text(DateFormat('HH:00', 'ru').format(hh),
-                                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, height: 1.0),
-                                                overflow: TextOverflow.fade, softWrap: false),
-                                            const SizedBox(height: 2),
-                                            Icon(_iconFor(h.condition), size: 16, color: Colors.white),
-                                            const SizedBox(height: 2),
-                                            Text("${h.temp.round()}°",
-                                                style: const TextStyle(fontSize: 11, height: 1.0),
-                                                overflow: TextOverflow.fade, softWrap: false),
-                                          ],
-                                        ),
-                                      );
-                                    },
-                                  ),
-                                );
-                              } else {
-                                final d = b!.nextDays[_selectedDayIndex];
-                                return _glass(
-                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    crossAxisAlignment: CrossAxisAlignment.end,
+                      ),
+                      const SizedBox(height: 24),
+                    ],
+                    if (b != null) ...[
+                      // Header
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Align(alignment: Alignment.topRight, child: _TinyThreeDots(onTap: _openSettings)),
+                          const SizedBox(height: 6),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      b.city,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w800, color: Colors.white),
+                                    ),
+                                    const SizedBox(height: 2),
+                                    if (_updatedLabel().isNotEmpty)
+                                      Text(_updatedLabel(), style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                                  ],
+                                ),
+                              ),
+                              Column(
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Row(
                                     children: [
-                                      // 1-я строка: дата справа, белым, уменьшенный шрифт
-                                      Text(
-                                        DateFormat('d MMMM', 'ru').format(d.date),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        softWrap: false,
-                                        textAlign: TextAlign.right,
-                                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white),
-                                      ),
-                                      const SizedBox(height: 4),
-                                      // 2-я строка: день недели • диапазон • осадки — тоже белым и компактно
-                                      Text(
-                                        "${_capitalize(dayRu(d.date))} • ${_dayRangeLine(d)} • " +
-                                            (d.pop != null
-                                                ? "Вероятность осадков: ${(d.pop! * 100).round()}%"
-                                                : "Вероятность осадков: —"),
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        softWrap: false,
-                                        textAlign: TextAlign.right,
-                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white),
-                                      ),
+                                      Text("${b.temperature.round()}°",
+                                          style: const TextStyle(fontSize: 58, fontWeight: FontWeight.w800, color: Colors.white, height: 1.0)),
+                                      const SizedBox(width: 8),
+                                      _WeatherIcon(b.condition, size: 28),
                                     ],
                                   ),
-                                );
-                              }
-                            },
+                                  const SizedBox(height: 8),
+                                  Text(_capitalize(_condRu(b.condition)), style: const TextStyle(color: Colors.white70)),
+                                ],
+                              ),
+                            ],
                           ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+
+                      // Hourly (today) or 2-line summary (other day)
+                      SizedBox(
+                        height: _rowBoxHeight,
+                        child: LayoutBuilder(
+                          builder: (c, cc) {
+                            final isToday = _selectedDayIndex == 0;
+                            if (isToday) {
+                              const double visibleSlots = 5;
+                              final double slotW = cc.maxWidth / visibleSlots;
+                              final list = b!.hours;
+                              const int count = 12;
+                              return _glass(
+                                disableBlur: false,
+                                padding: const EdgeInsets.symmetric(vertical: 8),
+                                child: ListView.builder(
+                                  controller: _hourCtrl,
+                                  scrollDirection: Axis.horizontal,
+                                  physics: const BouncingScrollPhysics(),
+                                  padding: EdgeInsets.zero,
+                                  itemCount: count,
+                                  itemBuilder: (context, index) {
+                                    final h = list[index < list.length ? index : (list.length - 1)];
+                                    final hh = DateTime(h.time.year, h.time.month, h.time.day, h.time.hour);
+                                    return SizedBox(
+                                      width: slotW,
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text(DateFormat('HH:00', 'ru').format(hh),
+                                              style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, height: 1.0),
+                                              overflow: TextOverflow.fade, softWrap: false),
+                                          const SizedBox(height: 2),
+                                          _WeatherIcon(h.condition, size: 16),
+                                          const SizedBox(height: 2),
+                                          Text("${h.temp.round()}°", style: const TextStyle(fontSize: 11, height: 1.0),
+                                              overflow: TextOverflow.fade, softWrap: false),
+                                        ],
+                                      ),
+                                    );
+                                  },
+                                ),
+                              );
+                            } else {
+                              final d = b!.nextDays[_selectedDayIndex];
+                              return _glass(
+                                disableBlur: false,
+                                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  crossAxisAlignment: CrossAxisAlignment.end,
+                                  children: [
+                                    Text(
+                                      DateFormat('d MMMM', 'ru').format(d.date),
+                                      maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false, textAlign: TextAlign.right,
+                                      style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      "${_capitalize(dayRu(d.date))} • ${_dayRangeLine(d)} • " +
+                                          (d.pop != null ? "Вероятность осадков: ${(d.pop! * 100).round()}%" : "Вероятность осадков: —"),
+                                      maxLines: 1, overflow: TextOverflow.ellipsis, softWrap: false, textAlign: TextAlign.right,
+                                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }
+                          },
                         ),
+                      ),
+                      const SizedBox(height: 8),
 
-                        const SizedBox(height: 8),
-
-                        // 7-day row
-                        _glass(
+                      // 7-day row
+                      SizedBox(
+                        height: _rowBoxHeight,
+                        child: _glass(
+                          disableBlur: false,
                           padding: const EdgeInsets.symmetric(vertical: 0),
                           child: Row(
                             children: List.generate(7, (index) {
@@ -923,7 +853,6 @@ class _WeatherScreenState extends State<WeatherScreen> {
                               final bool isSel = index == _selectedDayIndex;
                               final d = hasData ? days[index] : null;
                               final String title = index == 0 ? "Сегодня" : (hasData ? _capitalize(dayRu(d!.date)) : "—");
-
                               return Expanded(
                                 child: Material(
                                   color: Colors.transparent,
@@ -940,9 +869,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
                                       decoration: BoxDecoration(
                                         color: isSel && index != 0 ? Colors.black.withOpacity(0.06) : Colors.transparent,
                                         border: Border(
-                                          right: index < 6
-                                              ? BorderSide(color: Colors.black.withOpacity(0.12))
-                                              : BorderSide.none,
+                                          right: index < 6 ? BorderSide(color: Colors.black.withOpacity(0.12)) : BorderSide.none,
                                         ),
                                       ),
                                       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
@@ -951,20 +878,14 @@ class _WeatherScreenState extends State<WeatherScreen> {
                                         children: [
                                           Text(
                                             title,
-                                            style: TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 11,
-                                                color: isSel ? Colors.white : Colors.white70),
-                                            maxLines: 1,
-                                            softWrap: false,
-                                            overflow: TextOverflow.ellipsis,
+                                            style: TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: isSel ? Colors.white : Colors.white70),
+                                            maxLines: 1, softWrap: false, overflow: TextOverflow.ellipsis,
                                           ),
                                           const SizedBox(height: 4),
                                           if (hasData) ...[
-                                            Icon(_iconFor(d!.condition), size: 16, color: Colors.white),
+                                            _WeatherIcon(d!.condition, size: 16),
                                             const SizedBox(height: 4),
-                                            Text("${d.temp.round()}°",
-                                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                            Text("${d.temp.round()}°", style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
                                           ] else ...[
                                             const SizedBox(height: 16),
                                             const SizedBox(height: 4),
@@ -979,12 +900,12 @@ class _WeatherScreenState extends State<WeatherScreen> {
                             }),
                           ),
                         ),
-                      ],
-                      const SizedBox(height: 24),
+                      ),
                     ],
-                  ),
+                    const SizedBox(height: 24),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ],
@@ -993,22 +914,19 @@ class _WeatherScreenState extends State<WeatherScreen> {
   }
 
   // ------- helpers -------
-
-  Widget _glass({required Widget child, EdgeInsetsGeometry? padding, BorderRadius? radius}) {
+  Widget _glass({required Widget child, EdgeInsetsGeometry? padding, BorderRadius? radius, bool disableBlur = false}) {
+    final deco = BoxDecoration(
+      color: Colors.white.withOpacity(0.20),
+      border: Border.all(color: Colors.white.withOpacity(0.34)),
+      borderRadius: radius ?? BorderRadius.circular(16),
+    );
+    final cont = Container(padding: padding, decoration: deco, child: child);
+    if (disableBlur) {
+      return ClipRRect(borderRadius: radius ?? BorderRadius.circular(16), child: cont);
+    }
     return ClipRRect(
       borderRadius: radius ?? BorderRadius.circular(16),
-      child: BackdropFilter(
-        filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-        child: Container(
-          padding: padding,
-          decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.20), // чуть менее прозрачный, чтобы не "таял" при pull
-            border: Border.all(color: Colors.white.withOpacity(0.34)),
-            borderRadius: radius ?? BorderRadius.circular(16),
-          ),
-          child: child,
-        ),
-      ),
+      child: BackdropFilter(filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14), child: cont),
     );
   }
 
@@ -1025,118 +943,101 @@ class _WeatherScreenState extends State<WeatherScreen> {
       final swatch = palette.vibrantColor ?? palette.dominantColor;
       final col = swatch?.color ?? _accentColor;
       if (!mounted) return;
-      setState(() {
-        _accentColor = col;
-      });
-    } catch (_) {
-    } finally {
-      _paletteBusy = false;
-    }
+      setState(() { _accentColor = col; });
+    } catch (_) {} finally { _paletteBusy = false; }
   }
 
   Future<void> _openSettings() async {
     await showModalBottomSheet(
       context: context,
       isScrollControlled: true,
-      backgroundColor: Colors.black.withOpacity(0.90), // почти непрозрачное
+      backgroundColor: Colors.black.withOpacity(0.90),
       barrierColor: Colors.black54,
       builder: (bottomCtx) {
         bool busy = false;
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            final ids = _availableCharacterIds();
-            return SafeArea(
-              child: Stack(
-                children: [
-                  Container(
-                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-                    child: SingleChildScrollView(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: busy
-                                      ? null
-                                      : () async {
-                                    setSheetState(() { busy = true; });
-                                    final ok = await _detectCityByGPS();
-                                    setSheetState(() { busy = false; });
-                                    if (ok && Navigator.of(bottomCtx).canPop()) {
-                                      Navigator.of(bottomCtx).pop();
-                                    }
-                                  },
-                                  child: const Text("Определить город"),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: OutlinedButton(
-                                  onPressed: busy ? null : () => _openCitySearch(bottomCtx),
-                                  child: const Text("Выбрать вручную"),
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          Container(height: 1, color: Colors.white.withOpacity(0.4)),
-                          const SizedBox(height: 12),
-                          const Text("Персонажи",
-                              style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 12),
-                          GridView.builder(
-                            shrinkWrap: true,
-                            physics: const NeverScrollableScrollPhysics(),
-                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              mainAxisSpacing: 10,
-                              crossAxisSpacing: 10,
-                              childAspectRatio: 1,
-                            ),
-                            itemCount: ids.length,
-                            itemBuilder: (context, index) {
-                              final id = ids[index];
-                              final path = _avatarFor(id);
-                              final isSelected = id == characterId;
-                              return GestureDetector(
-                                onTap: busy ? null : () async {
+        return StatefulBuilder(builder: (ctx, setSheetState) {
+          final ids = _availableCharacterIds();
+          return SafeArea(
+            child: Stack(
+              children: [
+                Container(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                  child: SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: busy ? null : () async {
                                   setSheetState(() { busy = true; });
-                                  setState(() { characterId = id; });
-                                  await _saveSelectedCharacter(id);
+                                  final ok = await _detectCityByGPS();
                                   setSheetState(() { busy = false; });
-                                  if (Navigator.of(bottomCtx).canPop()) Navigator.of(bottomCtx).pop();
+                                  if (ok && Navigator.of(bottomCtx).canPop()) Navigator.of(bottomCtx).pop();
                                 },
-                                child: ClipRRect(
-                                  borderRadius: BorderRadius.circular(14),
-                                  child: Stack(
-                                    fit: StackFit.expand,
-                                    children: [
-                                      Image.asset(path, fit: BoxFit.cover),
-                                      if (isSelected)
-                                        Container(
-                                          color: Colors.black.withOpacity(0.25),
-                                          child: const Center(child: Icon(Icons.check_circle, color: Colors.white, size: 28)),
-                                        ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
+                                child: const Text("Определить город"),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: busy ? null : () => _openCitySearch(bottomCtx),
+                                child: const Text("Выбрать вручную"),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Container(height: 1, color: Colors.white.withOpacity(0.4)),
+                        const SizedBox(height: 12),
+                        const Text("Персонажи", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
+                        const SizedBox(height: 12),
+                        GridView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 2, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 1,
                           ),
-                        ],
-                      ),
+                          itemCount: ids.length,
+                          itemBuilder: (context, index) {
+                            final id = ids[index];
+                            final path = _avatarFor(id);
+                            final isSelected = id == characterId;
+                            return GestureDetector(
+                              onTap: busy ? null : () async {
+                                setSheetState(() { busy = true; });
+                                setState(() { characterId = id; });
+                                await _saveSelectedCharacter(id);
+                                setSheetState(() { busy = false; });
+                                if (Navigator.of(bottomCtx).canPop()) Navigator.of(bottomCtx).pop();
+                              },
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(14),
+                                child: Stack(
+                                  fit: StackFit.expand,
+                                  children: [
+                                    Image.asset(path, fit: BoxFit.cover),
+                                    if (isSelected) Container(
+                                      color: Colors.black.withOpacity(0.25),
+                                      child: const Center(child: Icon(Icons.check_circle, color: Colors.white, size: 28)),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
                   ),
-                  if (busy)
-                    Positioned.fill(child: Container(color: Colors.black26, child: const Center(child: CircularProgressIndicator()))),
-                ],
-              ),
-            );
-          },
-        );
+                ),
+                if (busy) Positioned.fill(child: Container(color: Colors.black26, child: const Center(child: CircularProgressIndicator()))),
+              ],
+            ),
+          );
+        });
       },
     );
   }
@@ -1150,10 +1051,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
       builder: (ctx) => _CitySearchSheet(repo: repo),
     );
     if (selected != null) {
-      showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (_) => const Center(child: CircularProgressIndicator()));
+      showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
       await _loadByCoords(selected.lat, selected.lon, named: selected.displayName());
       if (Navigator.canPop(context)) Navigator.pop(context);
       if (Navigator.of(parentBottomCtx).canPop()) Navigator.of(parentBottomCtx).pop();
@@ -1171,10 +1069,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
       "assets/images/${id}_rain_day.webp",
       "assets/images/${id}_clouds_morning.webp",
     ];
-    for (final p in candidates) {
-      if (_assetKeys.contains(p)) return p;
-    }
-    // fallback: любой ассет персонажа
+    for (final p in candidates) { if (_assetKeys.contains(p)) return p; }
     for (final k in _assetKeys) {
       if (k.startsWith("assets/images/$id/") || k.startsWith("assets/images/${id}_")) return k;
     }
@@ -1207,12 +1102,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
       }
       final pos = await geo.Geolocator.getCurrentPosition(desiredAccuracy: geo.LocationAccuracy.low);
       final name = await repo.reverseCity(pos.latitude, pos.longitude);
-      if (name != null && name.isNotEmpty) {
-        await _loadByCoords(pos.latitude, pos.longitude, named: name);
-        return true;
-      }
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text("Город не найден по координатам")));
+      if (name != null && name.isNotEmpty) { await _loadByCoords(pos.latitude, pos.longitude, named: name); return true; }
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Город не найден по координатам")));
       return false;
     } catch (_) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text("Ошибка определения местоположения")));
@@ -1255,6 +1146,48 @@ class _DotsPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
+
+
+class _WeatherIcon extends StatelessWidget {
+  final String condition;
+  final double size;
+  const _WeatherIcon(this.condition, {this.size = 20, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final c = condition;
+    if (c == "Rain" || c == "Drizzle") {
+      // Cloud with raindrops
+      return SizedBox(
+        width: size, height: size,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            Icon(Icons.cloud, size: size, color: Colors.white),
+            Positioned(
+              bottom: size * 0.02,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(Icons.water_drop, size: size * 0.28, color: Colors.white),
+                  SizedBox(width: size * 0.06),
+                  Icon(Icons.water_drop, size: size * 0.28, color: Colors.white),
+                  SizedBox(width: size * 0.06),
+                  Icon(Icons.water_drop, size: size * 0.28, color: Colors.white),
+                ],
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+    if (c == "Thunderstorm") return Icon(Icons.thunderstorm, size: size, color: Colors.white);
+    if (c == "Snow") return Icon(Icons.ac_unit, size: size, color: Colors.white);
+    if (c == "Clear") return Icon(Icons.wb_sunny, size: size, color: Colors.white);
+    return Icon(Icons.cloud, size: size, color: Colors.white);
+  }
+}
+
 
 // ------- City Search Sheet -------
 class _CitySearchSheet extends StatefulWidget {
@@ -1330,10 +1263,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
               const SizedBox(height: 12),
               if (_loading) const LinearProgressIndicator(minHeight: 2),
               if (_error.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: Text(_error, style: const TextStyle(color: Colors.redAccent)),
-                ),
+                Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error, style: const TextStyle(color: Colors.redAccent))),
               Flexible(
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxHeight: 300),
@@ -1347,9 +1277,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
                       return ListTile(
                         onTap: () => Navigator.pop(context, s),
                         title: Text(s.name, style: const TextStyle(color: Colors.white)),
-                        subtitle: Text(
-                            s.state == null || s.state!.isEmpty ? s.country : "${s.state}, ${s.country}",
-                            style: const TextStyle(color: Colors.white70)),
+                        subtitle: Text(s.state == null || s.state!.isEmpty ? s.country : "${s.state}, ${s.country}", style: const TextStyle(color: Colors.white70)),
                       );
                     },
                   ),
