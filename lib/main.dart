@@ -1354,11 +1354,49 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     return (lang == 'en' ? en : ru)[key] ?? key;
   }
 
+  Future<T?> _openSideSheet<T>(BuildContext context, double panelW, Widget child) {
+    return showGeneralDialog<T>(
+      context: context,
+      barrierDismissible: true,
+      barrierLabel: 'side-sheet',
+      barrierColor: Colors.black54,
+      pageBuilder: (ctx, a1, a2) {
+        final h = MediaQuery.of(ctx).size.height;
+        return SafeArea(
+          // Полная высота: без ограничений top/bottom у основного меню уже сняты, здесь тоже тянем на весь экран
+          top: false, bottom: false,
+          child: Align(
+            alignment: Alignment.centerRight,
+            child: SizedBox(
+              width: panelW,
+              height: h,
+              child: ClipRRect(
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(24),
+                  bottomLeft: Radius.circular(24),
+                ),
+                child: Material(
+                  color: const Color(0xFFF7F7FA),
+                  child: child,
+                ),
+              ),
+            ),
+          ),
+        );
+      },
+      transitionBuilder: (ctx, anim, _, widget) {
+        final offset = Tween<Offset>(begin: const Offset(0.2, 0), end: Offset.zero).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic));
+        return SlideTransition(position: offset, child: FadeTransition(opacity: anim, child: widget));
+      },
+      transitionDuration: const Duration(milliseconds: 240),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final ids = widget.availableIds();
     final screenW = MediaQuery.of(context).size.width;
-    // Width ≈ 25% (reduced by 15 p.p. from 40%)
+    // Ширина ≈ 25% экрана
     final panelW = (screenW * 0.25).clamp(240.0, 380.0);
 
     return Padding(
@@ -1374,124 +1412,120 @@ class _SettingsPanelState extends State<_SettingsPanel> {
             ),
             boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 12, offset: Offset(0,4))],
           ),
-          child: SafeArea(
-            top: false, bottom: true, left: false, right: false,
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // RU / ENG — уменьшены в 3 раза
-                  Row(
-                    children: [
-                      _LangButtonSmall(label: t('ru'), selected: lang == 'ru', onTap: () async {
-                        setState(() => lang = 'ru');
-                        await _savePrefs();
-                      }),
-                      const SizedBox(width: 8),
-                      _LangButtonSmall(label: t('en'), selected: lang == 'en', onTap: () async {
-                        setState(() => lang = 'en');
-                        await _savePrefs();
-                      }),
-                    ],
+          // Меню по высоте на весь экран: отключаем SafeArea и растягиваем контейнер
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // RU / ENG — высота увеличена в 1.5 раза (12 -> 18)
+                Row(
+                  children: [
+                    _LangButtonSmall(label: t('ru'), selected: lang == 'ru', onTap: () async {
+                      setState(() => lang = 'ru');
+                      await _savePrefs();
+                    }),
+                    const SizedBox(width: 8),
+                    _LangButtonSmall(label: t('en'), selected: lang == 'en', onTap: () async {
+                      setState(() => lang = 'en');
+                      await _savePrefs();
+                    }),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                // "Город" — текст + иконка справа
+                _PlainRowItem(
+                  title: t('city'),
+                  icon: Icons.location_city_rounded,
+                  onTap: () async {
+                    if (busy) return;
+                    setState(() => busy = true);
+                    try {
+                      await widget.onManualPick();
+                    } finally {
+                      if (mounted) setState(() => busy = false);
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                // "Единицы" — открываем боковую панель такой же ширины
+                _PlainRowItem(
+                  title: t('units'),
+                  icon: Icons.straighten_rounded,
+                  subtitle: '${t('temperature')}: ${unitsTempC ? '°C' : '°F'}  •  ${t('wind_speed')}: ${unitsWindMs ? 'm/s' : 'km/h'}',
+                  onTap: () async {
+                    final result = await _openSideSheet<Map<String,bool>>(context, panelW, UnitsPage(
+                      lang: lang,
+                      temperatureC: unitsTempC,
+                      windMs: unitsWindMs,
+                      t: t,
+                      embedded: true,
+                    ));
+                    if (result != null) {
+                      setState(() {
+                        unitsTempC = result['temp'] ?? unitsTempC;
+                        unitsWindMs = result['wind'] ?? unitsWindMs;
+                      });
+                      await _savePrefs();
+                    }
+                  },
+                ),
+                const SizedBox(height: 8),
+                // "Уведомления" — боковая панель
+                _PlainRowItem(
+                  title: t('notifications'),
+                  icon: Icons.notifications_active_rounded,
+                  subtitle: notifications ? t('on') : t('off'),
+                  onTap: () async {
+                    final result = await _openSideSheet<bool>(context, panelW, NotificationsPage(
+                      lang: lang,
+                      enabled: notifications,
+                      t: t,
+                      embedded: true,
+                    ));
+                    if (result != null) {
+                      setState(() => notifications = result);
+                      await _savePrefs();
+                    }
+                  },
+                ),
+                const SizedBox(height: 16),
+                const Center(
+                  child: Text(
+                    'Персонаж',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1A1A1C)),
                   ),
-                  const SizedBox(height: 12),
-                  // "Город" — текст + иконка города справа
-                  _PlainRowItem(
-                    title: t('city'),
-                    icon: Icons.location_city_rounded,
-                    onTap: () async {
-                      if (busy) return;
-                      setState(() => busy = true);
-                      try {
-                        await widget.onManualPick();
-                      } finally {
-                        if (mounted) setState(() => busy = false);
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  // "Единицы" — открываем страницу с ВЫБОРОМ (либо-то, либо-то)
-                  _PlainRowItem(
-                    title: t('units'),
-                    icon: Icons.straighten_rounded,
-                    subtitle: '${t('temperature')}: ${unitsTempC ? '°C' : '°F'}  •  ${t('wind_speed')}: ${unitsWindMs ? 'm/s' : 'km/h'}',
-                    onTap: () async {
-                      final result = await Navigator.of(context).push<Map<String,bool>>(
-                        MaterialPageRoute(builder: (_) => UnitsPage(
-                          lang: lang,
-                          temperatureC: unitsTempC,
-                          windMs: unitsWindMs,
-                          t: t,
-                        )),
-                      );
-                      if (result != null) {
-                        setState(() {
-                          unitsTempC = result['temp'] ?? unitsTempC;
-                          unitsWindMs = result['wind'] ?? unitsWindMs;
-                        });
-                        await _savePrefs();
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  // "Уведомления"
-                  _PlainRowItem(
-                    title: t('notifications'),
-                    icon: Icons.notifications_active_rounded,
-                    subtitle: notifications ? t('on') : t('off'),
-                    onTap: () async {
-                      final result = await Navigator.of(context).push<bool>(
-                        MaterialPageRoute(builder: (_) => NotificationsPage(
-                          lang: lang,
-                          enabled: notifications,
-                          t: t,
-                        )),
-                      );
-                      if (result != null) {
-                        setState(() => notifications = result);
-                        await _savePrefs();
-                      }
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  const Center(
-                    child: Text(
-                      'Персонаж',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1A1A1C)),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 10,
-                    runSpacing: 10,
-                    children: [
-                      for (final id in ids)
-                        GestureDetector(
-                          onTap: busy ? null : () async { await widget.onPickCharacter(id); },
-                          child: ClipRRect(
-                            borderRadius: BorderRadius.circular(14),
-                            child: Stack(
-                              children: [
-                                Image.asset(widget.avatarFor(id), width: 84, height: 84, fit: BoxFit.cover),
-                                if (widget.isSelected(id))
-                                  Container(
-                                    width: 84, height: 84,
-                                    color: Colors.black.withOpacity(0.25),
-                                    child: const Center(child: Icon(Icons.check_circle, color: Colors.white, size: 28)),
-                                  ),
-                              ],
-                            ),
+                ),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 10,
+                  children: [
+                    for (final id in ids)
+                      GestureDetector(
+                        onTap: busy ? null : () async { await widget.onPickCharacter(id); },
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(14),
+                          child: Stack(
+                            children: [
+                              Image.asset(widget.avatarFor(id), width: 84, height: 84, fit: BoxFit.cover),
+                              if (widget.isSelected(id))
+                                Container(
+                                  width: 84, height: 84,
+                                  color: Colors.black.withOpacity(0.25),
+                                  child: const Center(child: Icon(Icons.check_circle, color: Colors.white, size: 28)),
+                                ),
+                            ],
                           ),
                         ),
-                    ],
-                  ),
-                  if (busy) const Padding(
-                    padding: EdgeInsets.only(top: 16),
-                    child: LinearProgressIndicator(minHeight: 2, color: Colors.black54, backgroundColor: Color(0xFFE0E0E0)),
-                  ),
-                ],
-              ),
+                      ),
+                  ],
+                ),
+                if (busy) const Padding(
+                  padding: EdgeInsets.only(top: 16),
+                  child: LinearProgressIndicator(minHeight: 2, color: Colors.black54, backgroundColor: Color(0xFFE0E0E0)),
+                ),
+              ],
             ),
           ),
         ),
@@ -1505,7 +1539,8 @@ class UnitsPage extends StatefulWidget {
   final bool temperatureC;
   final bool windMs;
   final String Function(String) t;
-  const UnitsPage({super.key, required this.lang, required this.temperatureC, required this.windMs, required this.t});
+  final bool embedded; // если true — подложка прозрачная, для боковой панели
+  const UnitsPage({super.key, required this.lang, required this.temperatureC, required this.windMs, required this.t, this.embedded = false});
 
   @override
   State<UnitsPage> createState() => _UnitsPageState();
@@ -1517,8 +1552,14 @@ class _UnitsPageState extends State<UnitsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.t('units'))),
+    final scaffold = Scaffold(
+      backgroundColor: widget.embedded ? Colors.transparent : null,
+      appBar: AppBar(
+        title: Text(widget.t('units')),
+        backgroundColor: widget.embedded ? Colors.transparent : null,
+        surfaceTintColor: widget.embedded ? Colors.transparent : null,
+        elevation: widget.embedded ? 0 : null,
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -1549,6 +1590,7 @@ class _UnitsPageState extends State<UnitsPage> {
         ],
       ),
     );
+    return scaffold;
   }
 }
 
@@ -1556,7 +1598,8 @@ class NotificationsPage extends StatefulWidget {
   final String lang;
   final bool enabled;
   final String Function(String) t;
-  const NotificationsPage({super.key, required this.lang, required this.enabled, required this.t});
+  final bool embedded; // если true — прозрачная подложка для боковой панели
+  const NotificationsPage({super.key, required this.lang, required this.enabled, required this.t, this.embedded = false});
 
   @override
   State<NotificationsPage> createState() => _NotificationsPageState();
@@ -1567,8 +1610,14 @@ class _NotificationsPageState extends State<NotificationsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.t('notifications'))),
+    final scaffold = Scaffold(
+      backgroundColor: widget.embedded ? Colors.transparent : null,
+      appBar: AppBar(
+        title: Text(widget.t('notifications')),
+        backgroundColor: widget.embedded ? Colors.transparent : null,
+        surfaceTintColor: widget.embedded ? Colors.transparent : null,
+        elevation: widget.embedded ? 0 : null,
+      ),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
@@ -1585,6 +1634,7 @@ class _NotificationsPageState extends State<NotificationsPage> {
         ],
       ),
     );
+    return scaffold;
   }
 }
 
@@ -1600,7 +1650,7 @@ class _LangButtonSmall extends StatelessWidget {
       child: GestureDetector(
         onTap: onTap,
         child: Container(
-          height: 12, // уменьшено в 3 раза (с ~36)
+          height: 18, // было 12 — увеличено в 1.5 раза
           alignment: Alignment.center,
           decoration: BoxDecoration(
             color: selected ? Colors.black87 : Colors.white,
@@ -1610,7 +1660,7 @@ class _LangButtonSmall extends StatelessWidget {
           child: Text(
             label,
             style: TextStyle(
-              fontSize: 10,
+              fontSize: 12,
               height: 1.0,
               color: selected ? Colors.white : Colors.black87,
               fontWeight: FontWeight.w600,
