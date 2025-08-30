@@ -402,7 +402,7 @@ void main() async {
     statusBarColor: Colors.transparent,
     systemNavigationBarColor: Colors.transparent,
   ));
-  debugPrint("WeatherFox build: v17");
+  debugPrint("WeatherFox build: v18");
   runApp(const WeatherFoxApp());
 }
 
@@ -846,7 +846,7 @@ class _WeatherScreenState extends State<WeatherScreen> with TickerProviderStateM
                     SizedBox(
                       height: _rowBoxHeight,
                       child: LayoutBuilder(builder: (c, cc) {
-                        const double visibleSlots = 7; // прежняя визуальная плотность
+                        const double visibleSlots = 7;
                         final double slotW = cc.maxWidth / visibleSlots;
                         return _glass(
                           padding: EdgeInsets.zero,
@@ -921,6 +921,7 @@ class _WeatherScreenState extends State<WeatherScreen> with TickerProviderStateM
           ),
         ],
       ),
+      // settings button also accessible from app bar area if needed
     );
   }
 
@@ -961,18 +962,15 @@ class _WeatherScreenState extends State<WeatherScreen> with TickerProviderStateM
   }
 
   Future<void> _openSettings() async {
-    // Side sheet (право -> лево), ширина 50% экрана
     await showGeneralDialog(
       context: context,
       barrierDismissible: true,
       barrierLabel: 'Settings',
       barrierColor: Colors.black54,
       transitionDuration: const Duration(milliseconds: 240),
-      pageBuilder: (context, anim1, anim2) {
-        return const SizedBox.shrink();
-      },
+      pageBuilder: (context, anim1, anim2) => const SizedBox.shrink(),
       transitionBuilder: (ctx, anim, _, __) {
-        final width = MediaQuery.of(ctx).size.width * 0.5;
+        final width = MediaQuery.of(ctx).size.width * 0.4; // 40%
         final offset = Tween<Offset>(begin: const Offset(1, 0), end: Offset.zero).animate(CurvedAnimation(parent: anim, curve: Curves.easeOutCubic));
         return SlideTransition(
           position: offset,
@@ -981,8 +979,8 @@ class _WeatherScreenState extends State<WeatherScreen> with TickerProviderStateM
             child: SafeArea(
               child: _SettingsPanel(
                 width: width,
-                onDetectCity: _detectCityByGPS,
                 onManualPick: () => _openCitySearch(ctx),
+                onDetectCity: _detectCityByGPS,
                 avatarFor: _avatarFor,
                 availableIds: _availableCharacterIds,
                 isSelected: (id) => id == characterId,
@@ -1032,7 +1030,7 @@ class _WeatherScreenState extends State<WeatherScreen> with TickerProviderStateM
       isScrollControlled: true,
       backgroundColor: Colors.black.withOpacity(0.40),
       barrierColor: Colors.black54,
-      builder: (ctx) => _CitySearchSheet(repo: repo),
+      builder: (ctx) => _CitySearchSheet(repo: repo, detectCity: _detectCityByGPS),
     );
     if (selected != null) {
       showDialog(context: context, barrierDismissible: false, builder: (_) => const Center(child: CircularProgressIndicator()));
@@ -1141,86 +1139,75 @@ class _SettingsPanelState extends State<_SettingsPanel> {
     final ids = widget.availableIds();
     return Padding(
       padding: const EdgeInsets.fromLTRB(8, 8, 0, 8),
-      child: ClipRRect(
-        borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
-        child: BackdropFilter(
-          filter: ui.ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-          child: Container(
-            width: widget.width,
-            height: double.infinity,
-            decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.20),
-              border: Border.all(color: Colors.white.withOpacity(0.34)),
-              borderRadius: const BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
+      child: Container(
+        width: widget.width,
+        height: double.infinity,
+        decoration: const BoxDecoration(
+          color: Color(0xFFF7F7FA),
+          borderRadius: BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
+          boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 12, offset: Offset(0,4))],
+        ),
+        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // One City button
+            Theme(
+              data: Theme.of(context).copyWith(
+                splashColor: Colors.black12,
+                highlightColor: Colors.black12,
+              ),
+              child: SizedBox(
+                width: double.infinity,
+                child: ElevatedButton(
+                  onPressed: busy ? null : () async {
+                    setState(() => busy = true);
+                    await widget.onManualPick();
+                    setState(() => busy = false);
+                  },
+                  child: const Text("Город"),
+                ),
+              ),
             ),
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Two stacked buttons
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: busy ? null : () async {
-                      setState(() => busy = true);
-                      final ok = await widget.onDetectCity();
-                      setState(() => busy = false);
-                      if (ok && mounted) Navigator.of(context).maybePop();
-                    },
-                    child: const Text("Определить город"),
-                  ),
+            const SizedBox(height: 12),
+            Container(height: 1, color: Colors.black12),
+            const SizedBox(height: 12),
+            const Text("Персонаж", style: TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 12),
+            Expanded(
+              child: GridView.builder(
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 2, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 1,
                 ),
-                const SizedBox(height: 8),
-                SizedBox(
-                  width: double.infinity,
-                  child: OutlinedButton(
-                    onPressed: busy ? null : () async {
-                      setState(() => busy = true);
-                      await widget.onManualPick();
-                      setState(() => busy = false);
+                physics: const BouncingScrollPhysics(),
+                itemCount: ids.length,
+                itemBuilder: (context, index) {
+                  final id = ids[index];
+                  final path = widget.avatarFor(id);
+                  final isSelected = widget.isSelected(id);
+                  return GestureDetector(
+                    onTap: busy ? null : () async {
+                      await widget.onPickCharacter(id);
                     },
-                    child: const Text("Выбрать вручную"),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(height: 1, color: Colors.white.withOpacity(0.4)),
-                const SizedBox(height: 12),
-                const Text("Персонажи", style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.w700)),
-                const SizedBox(height: 12),
-                Expanded(
-                  child: GridView.builder(
-                    physics: const BouncingScrollPhysics(),
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 1,
-                    ),
-                    itemCount: ids.length,
-                    itemBuilder: (context, index) {
-                      final id = ids[index];
-                      final path = widget.avatarFor(id);
-                      final isSelected = widget.isSelected(id);
-                      return GestureDetector(
-                        onTap: busy ? null : () => widget.onPickCharacter(id),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(14),
-                          child: Stack(
-                            fit: StackFit.expand,
-                            children: [
-                              Image.asset(path, fit: BoxFit.cover),
-                              if (isSelected) Container(
-                                color: Colors.black.withOpacity(0.25),
-                                child: const Center(child: Icon(Icons.check_circle, color: Colors.white, size: 28)),
-                              ),
-                            ],
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(14),
+                      child: Stack(
+                        fit: StackFit.expand,
+                        children: [
+                          Image.asset(path, fit: BoxFit.cover),
+                          if (isSelected) Container(
+                            color: Colors.black.withOpacity(0.25),
+                            child: const Center(child: Icon(Icons.check_circle, color: Colors.white, size: 28)),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                if (busy) const LinearProgressIndicator(minHeight: 2, color: Colors.white, backgroundColor: Colors.white24),
-              ],
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
             ),
-          ),
+            if (busy) const LinearProgressIndicator(minHeight: 2, color: Colors.black54, backgroundColor: Color(0xFFE0E0E0)),
+          ],
         ),
       ),
     );
@@ -1263,7 +1250,8 @@ class _DotsPainter extends CustomPainter {
 // ------- City Search Sheet -------
 class _CitySearchSheet extends StatefulWidget {
   final WeatherRepository repo;
-  const _CitySearchSheet({required this.repo});
+  final Future<bool> Function()? detectCity;
+  const _CitySearchSheet({required this.repo, this.detectCity});
   @override
   State<_CitySearchSheet> createState() => _CitySearchSheetState();
 }
@@ -1276,6 +1264,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
   String _error = "";
 
   void _onChanged(String q) {
+    setState((){}); // to show/hide "Автоматически"
     _error = "";
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () async {
@@ -1310,6 +1299,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               TextField(
                 controller: _ctrl,
@@ -1332,7 +1322,24 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
                 },
               ),
               const SizedBox(height: 12),
-              if (_loading) const LinearProgressIndicator(minHeight: 2),
+              if ((_ctrl.text.trim().isEmpty) && widget.detectCity != null)
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton.icon(
+                    icon: const Icon(Icons.my_location),
+                    label: const Text("Автоматически"),
+                    onPressed: () async {
+                      setState(() { _loading = true; _error = ""; });
+                      final ok = await widget.detectCity!();
+                      setState(() { _loading = false; });
+                      if (ok && mounted) Navigator.of(context).maybePop();
+                    },
+                  ),
+                ),
+              if (_loading) const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: LinearProgressIndicator(minHeight: 2),
+              ),
               if (_error.isNotEmpty)
                 Padding(padding: const EdgeInsets.only(top: 8), child: Text(_error, style: const TextStyle(color: Colors.redAccent))),
               Flexible(
