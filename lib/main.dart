@@ -1108,111 +1108,9 @@ class _WeatherIcon extends StatelessWidget {
 }
 
 // ------- Side Settings Panel -------
-class _SettingsPanel extends StatefulWidget {
-  final double width;
-  final Future<bool> Function() onDetectCity;
-  final Future<void> Function() onManualPick;
-  final List<String> Function() availableIds;
-  final String Function(String) avatarFor;
-  final bool Function(String) isSelected;
-  final Future<void> Function(String) onPickCharacter;
 
-  const _SettingsPanel({
-    required this.width,
-    required this.onDetectCity,
-    required this.onManualPick,
-    required this.availableIds,
-    required this.avatarFor,
-    required this.isSelected,
-    required this.onPickCharacter,
-  });
 
-  @override
-  State<_SettingsPanel> createState() => _SettingsPanelState();
-}
 
-class _SettingsPanelState extends State<_SettingsPanel> {
-  bool busy = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final ids = widget.availableIds();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(8, 8, 0, 8),
-      child: Container(
-        width: widget.width,
-        height: double.infinity,
-        decoration: const BoxDecoration(
-          color: Color(0xFFF7F7FA),
-          borderRadius: BorderRadius.only(topLeft: Radius.circular(16), bottomLeft: Radius.circular(16)),
-          boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 12, offset: Offset(0,4))],
-        ),
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // One City button
-            Theme(
-              data: Theme.of(context).copyWith(
-                splashColor: Colors.black12,
-                highlightColor: Colors.black12,
-              ),
-              child: SizedBox(
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: busy ? null : () async {
-                    setState(() => busy = true);
-                    await widget.onManualPick();
-                    setState(() => busy = false);
-                  },
-                  child: const Text("Город"),
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(height: 1, color: Colors.black12),
-            const SizedBox(height: 12),
-            const Text("Персонаж", style: TextStyle(color: Colors.black87, fontSize: 16, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 12),
-            Expanded(
-              child: GridView.builder(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2, mainAxisSpacing: 10, crossAxisSpacing: 10, childAspectRatio: 1,
-                ),
-                physics: const BouncingScrollPhysics(),
-                itemCount: ids.length,
-                itemBuilder: (context, index) {
-                  final id = ids[index];
-                  final path = widget.avatarFor(id);
-                  final isSelected = widget.isSelected(id);
-                  return GestureDetector(
-                    onTap: busy ? null : () async {
-                      await widget.onPickCharacter(id);
-                    },
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(14),
-                      child: Stack(
-                        fit: StackFit.expand,
-                        children: [
-                          Image.asset(path, fit: BoxFit.cover),
-                          if (isSelected) Container(
-                            color: Colors.black.withOpacity(0.25),
-                            child: const Center(child: Icon(Icons.check_circle, color: Colors.white, size: 28)),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            if (busy) const LinearProgressIndicator(minHeight: 2, color: Colors.black54, backgroundColor: Color(0xFFE0E0E0)),
-          ],
-        ),
-      ),
-    );
-  }
-}
 
 // ------- Three tiny dots -------
 class _TinyThreeDots extends StatelessWidget {
@@ -1368,3 +1266,404 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
     );
   }
 }
+
+
+class _SettingsPanel extends StatefulWidget {
+  final double width;
+  final Future<bool> Function() onDetectCity;
+  final Future<void> Function() onManualPick;
+  final List<String> Function() availableIds;
+  final String Function(String) avatarFor;
+  final bool Function(String) isSelected;
+  final Future<void> Function(String) onPickCharacter;
+
+  const _SettingsPanel({
+    required this.width,
+    required this.onDetectCity,
+    required this.onManualPick,
+    required this.availableIds,
+    required this.avatarFor,
+    required this.isSelected,
+    required this.onPickCharacter,
+  });
+
+  @override
+  State<_SettingsPanel> createState() => _SettingsPanelState();
+}
+
+class _SettingsPanelState extends State<_SettingsPanel> {
+  bool busy = false;
+  String lang = 'ru'; // 'ru' | 'en'
+  bool unitsTempC = true; // true=C, false=F
+  bool unitsWindMs = true; // true=m/s, false=km/h
+  bool notifications = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPrefs();
+  }
+
+  Future<void> _loadPrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      setState(() {
+        lang = prefs.getString('lang') ?? 'ru';
+        unitsTempC = prefs.getBool('units_temp_c') ?? true;
+        unitsWindMs = prefs.getBool('units_wind_ms') ?? true;
+        notifications = prefs.getBool('notifications') ?? false;
+      });
+    } catch (_) {}
+  }
+
+  Future<void> _savePrefs() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString('lang', lang);
+      await prefs.setBool('units_temp_c', unitsTempC);
+      await prefs.setBool('units_wind_ms', unitsWindMs);
+      await prefs.setBool('notifications', notifications);
+    } catch (_) {}
+  }
+
+  String t(String key) {
+    const ru = {
+      'ru': 'РУС',
+      'en': 'ENG',
+      'city': 'Город',
+      'units': 'Единицы',
+      'notifications': 'Уведомления',
+      'temperature': 'Температура',
+      'wind_speed': 'Скорость ветра',
+      'on': 'Вкл',
+      'off': 'Выкл',
+      'auto': 'Автоматически',
+    };
+    const en = {
+      'ru': 'RUS',
+      'en': 'ENG',
+      'city': 'City',
+      'units': 'Units',
+      'notifications': 'Notifications',
+      'temperature': 'Temperature',
+      'wind_speed': 'Wind speed',
+      'on': 'On',
+      'off': 'Off',
+      'auto': 'Auto',
+    };
+    return (lang == 'en' ? en : ru)[key] ?? key;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ids = widget.availableIds();
+    final screenW = MediaQuery.of(context).size.width;
+    // Width ≈ 25% (reduced by 15 p.p. from 40%)
+    final panelW = (screenW * 0.25).clamp(240.0, 380.0);
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(8, 0, 0, 8),
+      child: SizedBox(
+        width: panelW,
+        child: Container(
+          decoration: const BoxDecoration(
+            color: Color(0xFFF7F7FA),
+            borderRadius: BorderRadius.only(
+              topLeft: Radius.circular(16),
+              bottomLeft: Radius.circular(16),
+            ),
+            boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 12, offset: Offset(0,4))],
+          ),
+          child: SafeArea(
+            top: false, bottom: true, left: false, right: false,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // RU / ENG — уменьшены в 3 раза
+                  Row(
+                    children: [
+                      _LangButtonSmall(label: t('ru'), selected: lang == 'ru', onTap: () async {
+                        setState(() => lang = 'ru');
+                        await _savePrefs();
+                      }),
+                      const SizedBox(width: 8),
+                      _LangButtonSmall(label: t('en'), selected: lang == 'en', onTap: () async {
+                        setState(() => lang = 'en');
+                        await _savePrefs();
+                      }),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // "Город" — текст + иконка города справа
+                  _PlainRowItem(
+                    title: t('city'),
+                    icon: Icons.location_city_rounded,
+                    onTap: () async {
+                      if (busy) return;
+                      setState(() => busy = true);
+                      try {
+                        await widget.onManualPick();
+                      } finally {
+                        if (mounted) setState(() => busy = false);
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  // "Единицы" — открываем страницу с ВЫБОРОМ (либо-то, либо-то)
+                  _PlainRowItem(
+                    title: t('units'),
+                    icon: Icons.straighten_rounded,
+                    subtitle: '${t('temperature')}: ${unitsTempC ? '°C' : '°F'}  •  ${t('wind_speed')}: ${unitsWindMs ? 'm/s' : 'km/h'}',
+                    onTap: () async {
+                      final result = await Navigator.of(context).push<Map<String,bool>>(
+                        MaterialPageRoute(builder: (_) => UnitsPage(
+                          lang: lang,
+                          temperatureC: unitsTempC,
+                          windMs: unitsWindMs,
+                          t: t,
+                        )),
+                      );
+                      if (result != null) {
+                        setState(() {
+                          unitsTempC = result['temp'] ?? unitsTempC;
+                          unitsWindMs = result['wind'] ?? unitsWindMs;
+                        });
+                        await _savePrefs();
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  // "Уведомления"
+                  _PlainRowItem(
+                    title: t('notifications'),
+                    icon: Icons.notifications_active_rounded,
+                    subtitle: notifications ? t('on') : t('off'),
+                    onTap: () async {
+                      final result = await Navigator.of(context).push<bool>(
+                        MaterialPageRoute(builder: (_) => NotificationsPage(
+                          lang: lang,
+                          enabled: notifications,
+                          t: t,
+                        )),
+                      );
+                      if (result != null) {
+                        setState(() => notifications = result);
+                        await _savePrefs();
+                      }
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  const Center(
+                    child: Text(
+                      'Персонаж',
+                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF1A1A1C)),
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      for (final id in ids)
+                        GestureDetector(
+                          onTap: busy ? null : () async { await widget.onPickCharacter(id); },
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(14),
+                            child: Stack(
+                              children: [
+                                Image.asset(widget.avatarFor(id), width: 84, height: 84, fit: BoxFit.cover),
+                                if (widget.isSelected(id))
+                                  Container(
+                                    width: 84, height: 84,
+                                    color: Colors.black.withOpacity(0.25),
+                                    child: const Center(child: Icon(Icons.check_circle, color: Colors.white, size: 28)),
+                                  ),
+                              ],
+                            ),
+                          ),
+                        ),
+                    ],
+                  ),
+                  if (busy) const Padding(
+                    padding: EdgeInsets.only(top: 16),
+                    child: LinearProgressIndicator(minHeight: 2, color: Colors.black54, backgroundColor: Color(0xFFE0E0E0)),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class UnitsPage extends StatefulWidget {
+  final String lang;
+  final bool temperatureC;
+  final bool windMs;
+  final String Function(String) t;
+  const UnitsPage({super.key, required this.lang, required this.temperatureC, required this.windMs, required this.t});
+
+  @override
+  State<UnitsPage> createState() => _UnitsPageState();
+}
+
+class _UnitsPageState extends State<UnitsPage> {
+  late bool tempC = widget.temperatureC;
+  late bool windMs = widget.windMs;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.t('units'))),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          Text(widget.t('temperature'), style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          ToggleButtons(
+            isSelected: [tempC, !tempC],
+            onPressed: (i) => setState(() => tempC = (i == 0)),
+            borderRadius: BorderRadius.circular(8),
+            constraints: const BoxConstraints(minHeight: 32, minWidth: 64),
+            children: const [Text('°C'), Text('°F')],
+          ),
+          const SizedBox(height: 20),
+          Text(widget.t('wind_speed'), style: const TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+          ToggleButtons(
+            isSelected: [windMs, !windMs],
+            onPressed: (i) => setState(() => windMs = (i == 0)),
+            borderRadius: BorderRadius.circular(8),
+            constraints: const BoxConstraints(minHeight: 32, minWidth: 64),
+            children: const [Text('m/s'), Text('km/h')],
+          ),
+          const SizedBox(height: 24),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop({'temp': tempC, 'wind': windMs}),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class NotificationsPage extends StatefulWidget {
+  final String lang;
+  final bool enabled;
+  final String Function(String) t;
+  const NotificationsPage({super.key, required this.lang, required this.enabled, required this.t});
+
+  @override
+  State<NotificationsPage> createState() => _NotificationsPageState();
+}
+
+class _NotificationsPageState extends State<NotificationsPage> {
+  late bool enabled = widget.enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(widget.t('notifications'))),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          SwitchListTile(
+            title: Text(widget.t('notifications')),
+            value: enabled,
+            onChanged: (v) => setState(() => enabled = v),
+          ),
+          const SizedBox(height: 24),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(enabled),
+            child: const Text('OK'),
+          )
+        ],
+      ),
+    );
+  }
+}
+
+class _LangButtonSmall extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _LangButtonSmall({required this.label, required this.selected, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Expanded(
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          height: 12, // уменьшено в 3 раза (с ~36)
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? Colors.black87 : Colors.white,
+            borderRadius: BorderRadius.circular(4),
+            border: Border.all(color: Colors.black12, width: 0.5),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 10,
+              height: 1.0,
+              color: selected ? Colors.white : Colors.black87,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlainRowItem extends StatelessWidget {
+  final String title;
+  final IconData icon;
+  final String? subtitle;
+  final VoidCallback onTap;
+  const _PlainRowItem({
+    required this.title,
+    required this.icon,
+    required this.onTap,
+    this.subtitle,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 10.0),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title, style: const TextStyle(fontSize: 16, color: Color(0xFF1A1A1C), fontWeight: FontWeight.w600)),
+                    if (subtitle != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 2.0),
+                        child: Text(subtitle!, style: const TextStyle(fontSize: 12, color: Colors.black54)),
+                      ),
+                  ],
+                ),
+              ),
+              Icon(icon, color: Colors.black87),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
