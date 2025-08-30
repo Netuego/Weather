@@ -15,6 +15,16 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'secrets.dart';        // const openWeatherApiKey = "...";
 import 'characters.dart';     // CharacterIds.fox, "robot", "spider", ...
 
+class NoStretchScrollBehavior extends MaterialScrollBehavior {
+  const NoStretchScrollBehavior();
+  @override
+  Widget buildOverscrollIndicator(BuildContext context, Widget child, ScrollableDetails details) {
+    // Disable both glow and stretching on all platforms
+    return child;
+  }
+}
+
+
 // ===================== DATA =====================
 class DayForecast {
   final DateTime date;
@@ -402,6 +412,7 @@ class WeatherFoxApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      scrollBehavior: const NoStretchScrollBehavior(),
       title: 'Weather Fox',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(useMaterial3: true, colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF3A6E86))),
@@ -696,7 +707,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
                   return false;
                 },
                 child: ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
+                  physics: const AlwaysScrollableScrollPhysics(parent: ClampingScrollPhysics()),
                   padding: const EdgeInsets.all(16),
                   children: [
                     if (loading && b == null)
