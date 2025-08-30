@@ -15,7 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'secrets.dart';          // const openWeatherApiKey = "...";
 import 'characters.dart';       // CharacterIds.fox, etc.
 
-const String kBuildTag = "v10";
+const String kBuildTag = "v12";
 
 // ===================== DATA =====================
 
@@ -304,7 +304,7 @@ class WeatherRepository {
       }
     }
 
-    // Нормализуем на 12 часовых слотов
+    // Нормализуем к 12 часам, начиная с текущего часа (HH:00).
     hours = _toHourly12(hours);
 
     if (days7.length > 7) days7 = days7.take(7).toList();
@@ -349,17 +349,14 @@ List<HourForecast> _toHourly12(List<HourForecast> src) {
   src.sort((a, b) => a.time.compareTo(b.time));
   final now = DateTime.now();
   final start = DateTime(now.year, now.month, now.day, now.hour);
-  // Если меньше 2 точек — дублируем ближайшую на 12 часов
   if (src.length == 1) {
     return List.generate(12, (i) => HourForecast(start.add(Duration(hours: i)), src.first.temp, src.first.condition));
   }
-  // Если шаг уже почасовой — обрежем к ближайшим 12 часам начиная с текущего часа
   final step = src[1].time.difference(src[0].time).inMinutes.abs();
   if (step <= 70) {
     final List<HourForecast> out = [];
     for (int i = 0; i < 12; i++) {
       final t = start.add(Duration(hours: i));
-      // найдём ближайшую точку по часу
       HourForecast nearest = src.first;
       int best = 1 << 30;
       for (final h in src) {
@@ -370,7 +367,6 @@ List<HourForecast> _toHourly12(List<HourForecast> src) {
     }
     return out;
   }
-  // Иначе — интерполяция
   List<HourForecast> out = [];
   for (int i = 0; i < 12; i++) {
     final t = start.add(Duration(hours: i));
@@ -454,7 +450,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
   late final ScrollController _hourCtrl;
   int _selectedDayIndex = 0;
 
-  static const double _hourBoxHeight = 92.0;
+  static const double _hourBoxHeight = 76.0; // ниже, как дневной
   Color _accentColor = const Color(0xFF5DA3C4);
   String? _currentScene;
   bool _paletteBusy = false;
@@ -734,7 +730,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
       body: Stack(
         fit: StackFit.expand,
         children: [
-          // Background
+          // Background image
           Positioned.fill(
             child: b == null
                 ? const ColoredBox(color: Color(0xFF355F5B))
@@ -744,245 +740,251 @@ class _WeatherScreenState extends State<WeatherScreen> {
               return Image.asset(scene, fit: BoxFit.cover, key: ValueKey(scene));
             }),
           ),
+          // --- Overlay panel behind scroll to avoid "transparent gap" on pull ---
+          // Это заполняет пространство под списком, чтобы при перетягивании вниз
+          // не просвечивался фон сцены.
+          Positioned.fill(child: Container(color: Colors.black.withOpacity(0.10))),
           SafeArea(
-            child: RefreshIndicator(
-              backgroundColor: Colors.transparent,
-              color: Colors.white,
-              onRefresh: () => _load(soft: true),
-              child: ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(16),
-                children: [
-                  if (loading && b == null)
-                    const Center(
-                        child: Padding(
-                          padding: EdgeInsets.all(32),
-                          child: CircularProgressIndicator(),
-                        )),
-                  if (!loading && b == null) ...[
-                    const SizedBox(height: 24),
-                    _glass(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: const [
-                          SizedBox(height: 8),
-                          Icon(Icons.cloud_off, size: 44, color: Colors.white70),
-                          SizedBox(height: 12),
-                          Text('Нет данных',
-                              style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
-                          SizedBox(height: 6),
-                          Text('Проверьте сеть, выберите город или потяните вниз, чтобы обновить',
-                              textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
-                          SizedBox(height: 8),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                  ],
-                  if (b != null) ...[
-                    // Header
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Align(alignment: Alignment.topRight, child: _TinyThreeDots(onTap: _openSettings)),
-                        const SizedBox(height: 6),
-                        Row(
+            child: Stack(
+              children: [
+                RefreshIndicator(
+                  backgroundColor: Colors.transparent,
+                  color: Colors.white,
+                  onRefresh: () => _load(soft: true),
+                  child: ListView(
+                    physics: const AlwaysScrollableScrollPhysics(),
+                    padding: const EdgeInsets.all(16),
+                    children: [
+                      if (loading && b == null)
+                        const Center(
+                            child: Padding(
+                              padding: EdgeInsets.all(32),
+                              child: CircularProgressIndicator(),
+                            )),
+                      if (!loading && b == null) ...[
+                        const SizedBox(height: 24),
+                        _glass(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            children: const [
+                              SizedBox(height: 8),
+                              Icon(Icons.cloud_off, size: 44, color: Colors.white70),
+                              SizedBox(height: 12),
+                              Text('Нет данных',
+                                  style: TextStyle(color: Colors.white, fontSize: 18, fontWeight: FontWeight.w700)),
+                              SizedBox(height: 6),
+                              Text('Проверьте сеть, выберите город или потяните вниз, чтобы обновить',
+                                  textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
+                              SizedBox(height: 8),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                      if (b != null) ...[
+                        // Header
+                        Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    b.city,
-                                    maxLines: 2,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                        fontSize: 34, fontWeight: FontWeight.w800, color: Colors.white),
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Row(
+                            Align(alignment: Alignment.topRight, child: _TinyThreeDots(onTap: _openSettings)),
+                            const SizedBox(height: 6),
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.start,
                                     children: [
+                                      Text(
+                                        b.city,
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                            fontSize: 34, fontWeight: FontWeight.w800, color: Colors.white),
+                                      ),
+                                      const SizedBox(height: 2),
                                       if (_updatedLabel().isNotEmpty)
-                                        Text(_updatedLabel(),
-                                            style: const TextStyle(color: Colors.white70, fontSize: 12)),
-                                      const SizedBox(width: 8),
-                                      const Text("build v10", style: TextStyle(color: Colors.white38, fontSize: 10)),
+                                        Text(_updatedLabel(), style: const TextStyle(color: Colors.white70, fontSize: 12)),
                                     ],
                                   ),
-                                ],
-                              ),
-                            ),
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Row(
+                                ),
+                                Column(
+                                  crossAxisAlignment: CrossAxisAlignment.end,
                                   children: [
-                                    Text("${b.temperature.round()}°",
-                                        style: const TextStyle(
-                                            fontSize: 58, fontWeight: FontWeight.w800, color: Colors.white, height: 1.0)),
-                                    const SizedBox(width: 8),
-                                    Icon(_iconFor(b.condition), size: 28, color: Colors.white),
+                                    Row(
+                                      children: [
+                                        Text("${b.temperature.round()}°",
+                                            style: const TextStyle(
+                                                fontSize: 58, fontWeight: FontWeight.w800, color: Colors.white, height: 1.0)),
+                                        const SizedBox(width: 8),
+                                        Icon(_iconFor(b.condition), size: 28, color: Colors.white),
+                                      ],
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(_capitalize(_condRu(b.condition)),
+                                        style: const TextStyle(color: Colors.white70)),
                                   ],
                                 ),
-                                const SizedBox(height: 8),
-                                Text(_capitalize(_condRu(b.condition)),
-                                    style: const TextStyle(color: Colors.white70)),
                               ],
                             ),
                           ],
                         ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
+                        const SizedBox(height: 8),
 
-                    // Hourly (today) or 2-line summary (other day)
-                    SizedBox(
-                      height: _hourBoxHeight,
-                      child: LayoutBuilder(
-                        builder: (c, cc) {
-                          final isToday = _selectedDayIndex == 0;
-                          if (isToday) {
-                            const double visibleSlots = 5;
-                            final double slotW = cc.maxWidth / visibleSlots;
-                            final list = b!.hours;
-                            const int count = 12; // всегда 12 часов
-                            return _glass(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              child: ListView.builder(
-                                controller: _hourCtrl,
-                                scrollDirection: Axis.horizontal,
-                                physics: const BouncingScrollPhysics(),
-                                padding: EdgeInsets.zero,
-                                itemCount: count,
-                                itemBuilder: (context, index) {
-                                  final h = list[index < list.length ? index : (list.length - 1)];
-                                  final hh = DateTime(h.time.year, h.time.month, h.time.day, h.time.hour);
-                                  return SizedBox(
-                                    width: slotW,
-                                    child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        Text(DateFormat('HH:00', 'ru').format(hh),
-                                            style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, height: 1.0),
-                                            overflow: TextOverflow.fade, softWrap: false),
-                                        const SizedBox(height: 2),
-                                        Icon(_iconFor(h.condition), size: 18, color: Colors.white),
-                                        const SizedBox(height: 2),
-                                        Text("${h.temp.round()}°",
-                                            style: const TextStyle(fontSize: 11, height: 1.0),
-                                            overflow: TextOverflow.fade, softWrap: false),
-                                      ],
-                                    ),
-                                  );
-                                },
-                              ),
-                            );
-                          } else {
-                            final d = b!.nextDays[_selectedDayIndex];
-                            return _glass(
-                              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Text(
-                                    DateFormat('d MMMM', 'ru').format(d.date),
-                                    maxLines: 1,
-                                    softWrap: false,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                        // Hourly (today) or 2-line summary (other day)
+                        SizedBox(
+                          height: _hourBoxHeight,
+                          child: LayoutBuilder(
+                            builder: (c, cc) {
+                              final isToday = _selectedDayIndex == 0;
+                              if (isToday) {
+                                const double visibleSlots = 5;
+                                final double slotW = cc.maxWidth / visibleSlots;
+                                final list = b!.hours;
+                                const int count = 12; // всегда 12 часов
+                                return _glass(
+                                  padding: const EdgeInsets.symmetric(vertical: 8),
+                                  child: ListView.builder(
+                                    controller: _hourCtrl,
+                                    scrollDirection: Axis.horizontal,
+                                    physics: const BouncingScrollPhysics(),
+                                    padding: EdgeInsets.zero,
+                                    itemCount: count,
+                                    itemBuilder: (context, index) {
+                                      final h = list[index < list.length ? index : (list.length - 1)];
+                                      final hh = DateTime(h.time.year, h.time.month, h.time.day, h.time.hour);
+                                      return SizedBox(
+                                        width: slotW,
+                                        child: Column(
+                                          mainAxisAlignment: MainAxisAlignment.center,
+                                          children: [
+                                            Text(DateFormat('HH:00', 'ru').format(hh),
+                                                style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, height: 1.0),
+                                                overflow: TextOverflow.fade, softWrap: false),
+                                            const SizedBox(height: 2),
+                                            Icon(_iconFor(h.condition), size: 16, color: Colors.white),
+                                            const SizedBox(height: 2),
+                                            Text("${h.temp.round()}°",
+                                                style: const TextStyle(fontSize: 11, height: 1.0),
+                                                overflow: TextOverflow.fade, softWrap: false),
+                                          ],
+                                        ),
+                                      );
+                                    },
                                   ),
-                                  const SizedBox(height: 4),
-                                  Text(
-                                    "${_capitalize(dayRu(d.date))} • ${_dayRangeLine(d)} • " +
-                                        (d.pop != null
-                                            ? "Вероятность осадков: ${(d.pop! * 100).round()}%"
-                                            : "Вероятность осадков: —"),
-                                    maxLines: 1,
-                                    softWrap: false,
-                                    textAlign: TextAlign.center,
-                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                                  ),
-                                ],
-                              ),
-                            );
-                          }
-                        },
-                      ),
-                    ),
-
-                    const SizedBox(height: 8),
-
-                    // 7-day row
-                    _glass(
-                      padding: const EdgeInsets.symmetric(vertical: 0),
-                      child: Row(
-                        children: List.generate(7, (index) {
-                          final days = b!.nextDays;
-                          final bool hasData = index < days.length;
-                          final bool isSel = index == _selectedDayIndex;
-                          final d = hasData ? days[index] : null;
-                          final String title = index == 0 ? "Сегодня" : (hasData ? _capitalize(dayRu(d!.date)) : "—");
-
-                          return Expanded(
-                            child: Material(
-                              color: Colors.transparent,
-                              child: InkWell(
-                                onTap: hasData ? () => setState(() => _selectedDayIndex = index) : null,
-                                overlayColor: MaterialStateProperty.resolveWith((states) {
-                                  if (states.contains(MaterialState.pressed)) return Colors.white.withOpacity(0.06);
-                                  if (states.contains(MaterialState.hovered) || states.contains(MaterialState.focused)) {
-                                    return Colors.white.withOpacity(0.04);
-                                  }
-                                  return Colors.transparent;
-                                }),
-                                child: Container(
-                                  decoration: BoxDecoration(
-                                    color: isSel && index != 0 ? Colors.black.withOpacity(0.06) : Colors.transparent,
-                                    border: Border(
-                                      right: index < 6
-                                          ? BorderSide(color: Colors.black.withOpacity(0.12))
-                                          : BorderSide.none,
-                                    ),
-                                  ),
-                                  padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                                );
+                              } else {
+                                final d = b!.nextDays[_selectedDayIndex];
+                                return _glass(
+                                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                                   child: Column(
                                     mainAxisAlignment: MainAxisAlignment.center,
+                                    crossAxisAlignment: CrossAxisAlignment.end,
                                     children: [
+                                      // 1-я строка: дата справа, белым, уменьшенный шрифт
                                       Text(
-                                        title,
-                                        style: TextStyle(
-                                            fontWeight: FontWeight.w800,
-                                            fontSize: 11,
-                                            color: isSel ? Colors.white : Colors.white70),
+                                        DateFormat('d MMMM', 'ru').format(d.date),
                                         maxLines: 1,
-                                        softWrap: false,
                                         overflow: TextOverflow.ellipsis,
+                                        softWrap: false,
+                                        textAlign: TextAlign.right,
+                                        style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: Colors.white),
                                       ),
                                       const SizedBox(height: 4),
-                                      if (hasData) ...[
-                                        Icon(_iconFor(d!.condition), size: 16, color: Colors.white),
-                                        const SizedBox(height: 4),
-                                        Text("${d.temp.round()}°",
-                                            style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
-                                      ] else ...[
-                                        const SizedBox(height: 16),
-                                        const SizedBox(height: 4),
-                                        const Text(" ", style: TextStyle(fontSize: 11)),
-                                      ],
+                                      // 2-я строка: день недели • диапазон • осадки — тоже белым и компактно
+                                      Text(
+                                        "${_capitalize(dayRu(d.date))} • ${_dayRangeLine(d)} • " +
+                                            (d.pop != null
+                                                ? "Вероятность осадков: ${(d.pop! * 100).round()}%"
+                                                : "Вероятность осадков: —"),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        softWrap: false,
+                                        textAlign: TextAlign.right,
+                                        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Colors.white),
+                                      ),
                                     ],
                                   ),
+                                );
+                              }
+                            },
+                          ),
+                        ),
+
+                        const SizedBox(height: 8),
+
+                        // 7-day row
+                        _glass(
+                          padding: const EdgeInsets.symmetric(vertical: 0),
+                          child: Row(
+                            children: List.generate(7, (index) {
+                              final days = b!.nextDays;
+                              final bool hasData = index < days.length;
+                              final bool isSel = index == _selectedDayIndex;
+                              final d = hasData ? days[index] : null;
+                              final String title = index == 0 ? "Сегодня" : (hasData ? _capitalize(dayRu(d!.date)) : "—");
+
+                              return Expanded(
+                                child: Material(
+                                  color: Colors.transparent,
+                                  child: InkWell(
+                                    onTap: hasData ? () => setState(() => _selectedDayIndex = index) : null,
+                                    overlayColor: MaterialStateProperty.resolveWith((states) {
+                                      if (states.contains(MaterialState.pressed)) return Colors.white.withOpacity(0.06);
+                                      if (states.contains(MaterialState.hovered) || states.contains(MaterialState.focused)) {
+                                        return Colors.white.withOpacity(0.04);
+                                      }
+                                      return Colors.transparent;
+                                    }),
+                                    child: Container(
+                                      decoration: BoxDecoration(
+                                        color: isSel && index != 0 ? Colors.black.withOpacity(0.06) : Colors.transparent,
+                                        border: Border(
+                                          right: index < 6
+                                              ? BorderSide(color: Colors.black.withOpacity(0.12))
+                                              : BorderSide.none,
+                                        ),
+                                      ),
+                                      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 6),
+                                      child: Column(
+                                        mainAxisAlignment: MainAxisAlignment.center,
+                                        children: [
+                                          Text(
+                                            title,
+                                            style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 11,
+                                                color: isSel ? Colors.white : Colors.white70),
+                                            maxLines: 1,
+                                            softWrap: false,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          if (hasData) ...[
+                                            Icon(_iconFor(d!.condition), size: 16, color: Colors.white),
+                                            const SizedBox(height: 4),
+                                            Text("${d.temp.round()}°",
+                                                style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600)),
+                                          ] else ...[
+                                            const SizedBox(height: 16),
+                                            const SizedBox(height: 4),
+                                            const Text(" ", style: TextStyle(fontSize: 11)),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 24),
-                ],
-              ),
+                              );
+                            }),
+                          ),
+                        ),
+                      ],
+                      const SizedBox(height: 24),
+                    ],
+                  ),
+                ),
+              ],
             ),
           ),
         ],
@@ -1000,8 +1002,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
         child: Container(
           padding: padding,
           decoration: BoxDecoration(
-            color: Colors.white.withOpacity(0.14),
-            border: Border.all(color: Colors.white.withOpacity(0.28)),
+            color: Colors.white.withOpacity(0.20), // чуть менее прозрачный, чтобы не "таял" при pull
+            border: Border.all(color: Colors.white.withOpacity(0.34)),
             borderRadius: radius ?? BorderRadius.circular(16),
           ),
           child: child,
