@@ -1,85 +1,102 @@
-import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+/// Идентификаторы и хелперы для персонажей.
+/// Структура ассетов предполагается такая:
+/// assets/images/<id>/<id>_<condition>[_<season>]_<(morning|day|evening|night)>.webp
+///
+/// Примеры:
+/// assets/images/fox/fox_clear_day.webp
+/// assets/images/fox/fox_rain_summer_evening.webp
+/// assets/images/robot/robot_clouds_morning.webp
+/// assets/images/spider/spider_rain_day.webp
+///
+/// ВНИМАНИЕ: Имена файлов по-прежнему содержат префикс id (например, fox_...),
+/// чтобы существующая логика в main.dart продолжала без правок находить картинки.
 
 class CharacterIds {
-  static const fox = 'fox';
-  static const spider = 'spider'; // новый вместо енота
-  static const robot = 'robot';
-}
+  static const String fox = 'fox';
+  static const String robot = 'robot';
+  static const String spider = 'spider';
 
-class Character {
-  final String id;
-  final String name;
-  final String preview; // путь к превью (WebP)
-  const Character(this.id, this.name, this.preview);
-}
+  /// Оставляем на всякий случай, если где-то ещё используется.
+  /// Если енот больше не нужен — можно удалить из списка `all`.
+  static const String raccoon = 'raccoon';
 
-const availableCharacters = <Character>[
-  Character(CharacterIds.fox, 'Лисёнок', 'assets/images/fox_clear_day.webp'),
-  Character(CharacterIds.spider, 'Паук', 'assets/images/spider_clear_day.webp'),
-  Character(CharacterIds.robot, 'Робот', 'assets/images/robot_clear_day.webp'),
-];
+  static const List<String> all = <String>[
+    fox,
+    robot,
+    spider,
+    raccoon, // можно убрать, если енота точно нет
+  ];
 
-Future<String> loadSavedCharacter() async {
-  final prefs = await SharedPreferences.getInstance();
-  return prefs.getString('character_id') ?? CharacterIds.fox;
-}
+  /// Человекочитаемые названия (на всякий случай).
+  static const Map<String, String> displayName = {
+    fox: 'Лисёнок',
+    robot: 'Робот',
+    spider: 'Паук',
+    raccoon: 'Енот',
+  };
 
-Future<void> saveCharacter(String id) async {
-  final prefs = await SharedPreferences.getInstance();
-  await prefs.setString('character_id', id);
-}
+  /// Папка персонажа.
+  static String folder(String id) => 'assets/images/$id';
 
-class CharacterSelectScreen extends StatelessWidget {
-  final String selectedId;
-  const CharacterSelectScreen({super.key, required this.selectedId});
+  /// Префикс имени файла (оставляем с id во избежание ломки совместимости).
+  static String filePrefix(String id) => id;
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('Выбор персонажа')),
-      body: GridView.count(
-        crossAxisCount: 2,
-        padding: const EdgeInsets.all(16),
-        mainAxisSpacing: 16,
-        crossAxisSpacing: 16,
-        children: [
-          for (final c in availableCharacters)
-            InkWell(
-              onTap: () async {
-                await saveCharacter(c.id);
-                if (context.mounted) Navigator.pop(context, c.id);
-              },
-              child: AnimatedContainer(
-                duration: const Duration(milliseconds: 160),
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.white.withOpacity(0.88),
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(
-                    color: selectedId == c.id
-                        ? Theme.of(context).colorScheme.primary
-                        : Colors.transparent,
-                    width: 3,
-                  ),
-                  boxShadow: const [BoxShadow(blurRadius: 10, color: Colors.black26)],
-                ),
-                child: Column(
-                  children: [
-                    Expanded(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(12),
-                        child: Image.asset(c.preview, fit: BoxFit.cover),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(c.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                  ],
-                ),
-              ),
-            ),
-        ],
-      ),
+  /// Кандидаты путей для сцены по убыванию специфичности.
+  /// Example for fox:
+  /// assets/images/fox/fox_rain_summer_evening.webp
+  static List<String> sceneCandidates({
+    required String id,
+    required String condition, // clear|clouds|rain|snow|fog...
+    required String timeOfDay, // morning|day|evening|night
+    String? season,            // winter|spring|summer|autumn|wet|dry (для тропиков)
+  }) {
+    final base = folder(id);
+    final pref = filePrefix(id);
+
+    final List<String> list = [];
+    if (season != null && season.isNotEmpty) {
+      list.add('$base/${pref}_${condition}_${season}_${timeOfDay}.webp');
+    }
+    list.add('$base/${pref}_${condition}_${timeOfDay}.webp');
+    list.add('$base/${pref}_${condition}_day.webp');
+    return list;
+  }
+
+  /// Кандидаты для иконки/аватарки (превью персонажа).
+  /// Возвращаем список, из которого можно выбрать первый существующий.
+  static List<String> avatarCandidates(String id) {
+    final base = folder(id);
+    final pref = filePrefix(id);
+    return <String>[
+      '$base/${pref}_clear_day.webp',
+      '$base/${pref}_clouds_day.webp',
+      '$base/${pref}_rain_day.webp',
+      '$base/${pref}_clouds_morning.webp',
+    ];
+  }
+
+  /// Значение по умолчанию, если ничего не найдено.
+  static String fallbackAvatar(String id) =>
+      '${folder(id)}/${filePrefix(id)}_clouds_day.webp';
+
+  /// Проверка, что для персонажа вообще есть какие-то ассеты в манифесте.
+  static bool hasAnyAssets(String id, Set<String> assetKeys) {
+    final base = folder(id) + '/';
+    return assetKeys.any((k) => k.startsWith(base));
+  }
+
+  /// Попытка угадать лучший аватар по имеющимся ключам ассетов.
+  static String bestAvatarFromAssets(String id, Set<String> assetKeys) {
+    final cand = avatarCandidates(id);
+    for (final p in cand) {
+      if (assetKeys.contains(p)) return p;
+    }
+    // Если ничего из кандидатов — возьмём первый любой из папки персонажа
+    final base = folder(id) + '/';
+    final any = assetKeys.firstWhere(
+          (k) => k.startsWith(base),
+      orElse: () => fallbackAvatar(id),
     );
+    return any;
   }
 }

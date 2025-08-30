@@ -1,26 +1,31 @@
 name: weather_fox_android_mvp
-description: Android-focused MVP with seasonal scenes (WebP), offline cache, and multi-characters (fox/spider/robot)
+description: Weather concept app with seasonal character scenes
 publish_to: "none"
-version: 0.8.0+1
+version: 0.0.1+1
 
 environment:
-  sdk: ">=3.3.0 <4.0.0"
+  sdk: ">=3.0.0 <4.0.0"
 
 dependencies:
   flutter:
     sdk: flutter
   http: ^1.2.1
   intl: ^0.19.0
-  shared_preferences: ^2.3.2
-  geolocator: ^10.1.0
+  shared_preferences: ^2.2.3
+  geolocator: ^12.0.0
+  palette_generator: ^0.3.3+5
 
 dev_dependencies:
   flutter_test:
     sdk: flutter
-  flutter_lints: ^4.0.0
+  flutter_lints: ^3.0.1
 
 flutter:
   uses-material-design: true
   assets:
-    - assets/scenes_manifest.json
+    # Рекурсивно подтягиваем всё из images (на разных версиях Flutter иногда не хватает),
+    # поэтому явно укажем подпапки персонажей, чтобы не было сюрпризов:
     - assets/images/
+    - assets/images/fox/
+    - assets/images/robot/
+    - assets/images/spider/
