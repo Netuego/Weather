@@ -15,6 +15,8 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'secrets.dart';          // const openWeatherApiKey = "...";
 import 'characters.dart';       // CharacterIds.fox, etc.
 
+const String kBuildTag = "v10";
+
 // ===================== DATA =====================
 
 class DayForecast {
@@ -23,7 +25,7 @@ class DayForecast {
   final String condition;
   final double? minT;
   final double? maxT;
-  final double? pop; // 0..1 вероятность осадков
+  final double? pop; // вероятность осадков (0..1)
 
   DayForecast(this.date, this.temp, this.condition, {this.minT, this.maxT, this.pop});
 
@@ -236,7 +238,7 @@ class WeatherRepository {
       } catch (_) {}
     }
 
-    // /forecast fallback (5 суток) — вычислим min/max и оценим pop (максимум по дню)
+    // /forecast fallback (5 суток)
     if (days7.length < 7 || hours.isEmpty) {
       final fcUrl =
           "https://api.openweathermap.org/data/2.5/forecast?lat=$lat&lon=$lon&units=metric&lang=ru&appid=$apiKey";
@@ -302,7 +304,7 @@ class WeatherRepository {
       }
     }
 
-    // Гарантируем почасовой шаг ~1ч на ближайшие 12ч, если пришёл 3-часовой ряд
+    // Нормализуем на 12 часовых слотов
     hours = _toHourly12(hours);
 
     if (days7.length > 7) days7 = days7.take(7).toList();
@@ -341,13 +343,34 @@ class WeatherRepository {
   }
 }
 
-// Почасовая интерполяция до 12 точек, если шаг больше часа
+// Нормализуем к 12 часам, начиная с текущего часа (HH:00).
 List<HourForecast> _toHourly12(List<HourForecast> src) {
-  if (src.length < 2) return src;
+  if (src.isEmpty) return src;
   src.sort((a, b) => a.time.compareTo(b.time));
+  final now = DateTime.now();
+  final start = DateTime(now.year, now.month, now.day, now.hour);
+  // Если меньше 2 точек — дублируем ближайшую на 12 часов
+  if (src.length == 1) {
+    return List.generate(12, (i) => HourForecast(start.add(Duration(hours: i)), src.first.temp, src.first.condition));
+  }
+  // Если шаг уже почасовой — обрежем к ближайшим 12 часам начиная с текущего часа
   final step = src[1].time.difference(src[0].time).inMinutes.abs();
-  if (step <= 70) return src.take(12).toList(); // уже почасовой
-  final DateTime start = DateTime.now();
+  if (step <= 70) {
+    final List<HourForecast> out = [];
+    for (int i = 0; i < 12; i++) {
+      final t = start.add(Duration(hours: i));
+      // найдём ближайшую точку по часу
+      HourForecast nearest = src.first;
+      int best = 1 << 30;
+      for (final h in src) {
+        final d = (h.time.difference(t)).inMinutes.abs();
+        if (d < best) { best = d; nearest = h; }
+      }
+      out.add(HourForecast(t, nearest.temp, nearest.condition));
+    }
+    return out;
+  }
+  // Иначе — интерполяция
   List<HourForecast> out = [];
   for (int i = 0; i < 12; i++) {
     final t = start.add(Duration(hours: i));
@@ -385,6 +408,7 @@ void main() async {
     statusBarColor: Colors.transparent,
     systemNavigationBarColor: Colors.transparent,
   ));
+  debugPrint("WeatherFox build: $kBuildTag");
   runApp(const WeatherFoxApp());
 }
 
@@ -434,6 +458,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
   Color _accentColor = const Color(0xFF5DA3C4);
   String? _currentScene;
   bool _paletteBusy = false;
+  Timer? _autoTimer;
 
   @override
   void initState() {
@@ -446,10 +471,13 @@ class _WeatherScreenState extends State<WeatherScreen> {
       if (mounted) setState(() => characterId = id);
     });
     _loadFromPrefs().then((_) => _load());
+    _autoTimer?.cancel();
+    _autoTimer = Timer.periodic(const Duration(minutes: 15), (_) => _load(soft: true));
   }
 
   @override
   void dispose() {
+    _autoTimer?.cancel();
     _hourCtrl.dispose();
     super.dispose();
   }
@@ -678,12 +706,14 @@ class _WeatherScreenState extends State<WeatherScreen> {
 
   String _updatedLabel() {
     if (_lastUpdated == null) return "";
-    final diff = DateTime.now().difference(_lastUpdated!);
+    final now = DateTime.now();
+    final diff = now.difference(_lastUpdated!);
+    final timeStr = DateFormat('HH:mm', 'ru').format(_lastUpdated!);
     final mins = diff.inMinutes;
-    if (mins < 1) return "Обновлено только что";
-    if (mins < 60) return "Обновлено ${mins} мин назад";
+    if (mins < 1) return "Обновлено только что ($timeStr)";
+    if (mins < 60) return "Обновлено ${mins} мин назад ($timeStr)";
     final hours = diff.inHours;
-    return "Обновлено ${hours} ч назад";
+    return "Обновлено ${hours} ч назад ($timeStr)";
   }
 
   String _dayRangeLine(DayForecast d) {
@@ -716,6 +746,8 @@ class _WeatherScreenState extends State<WeatherScreen> {
           ),
           SafeArea(
             child: RefreshIndicator(
+              backgroundColor: Colors.transparent,
+              color: Colors.white,
               onRefresh: () => _load(soft: true),
               child: ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
@@ -768,9 +800,16 @@ class _WeatherScreenState extends State<WeatherScreen> {
                                     style: const TextStyle(
                                         fontSize: 34, fontWeight: FontWeight.w800, color: Colors.white),
                                   ),
-                                  const SizedBox(height: 4),
-                                  if (_updatedLabel().isNotEmpty)
-                                    Text(_updatedLabel(), style: const TextStyle(color: Colors.white70)),
+                                  const SizedBox(height: 2),
+                                  Row(
+                                    children: [
+                                      if (_updatedLabel().isNotEmpty)
+                                        Text(_updatedLabel(),
+                                            style: const TextStyle(color: Colors.white70, fontSize: 12)),
+                                      const SizedBox(width: 8),
+                                      const Text("build v10", style: TextStyle(color: Colors.white38, fontSize: 10)),
+                                    ],
+                                  ),
                                 ],
                               ),
                             ),
@@ -804,26 +843,27 @@ class _WeatherScreenState extends State<WeatherScreen> {
                         builder: (c, cc) {
                           final isToday = _selectedDayIndex == 0;
                           if (isToday) {
-                            final count = b!.hours.length > 12 ? 12 : b!.hours.length;
-                            const double pad = 12;
-                            final double inner = cc.maxWidth - pad * 2;
-                            final double slotW = inner / 5; // показываем ровно 5 слотов
+                            const double visibleSlots = 5;
+                            final double slotW = cc.maxWidth / visibleSlots;
+                            final list = b!.hours;
+                            const int count = 12; // всегда 12 часов
                             return _glass(
                               padding: const EdgeInsets.symmetric(vertical: 8),
                               child: ListView.builder(
                                 controller: _hourCtrl,
                                 scrollDirection: Axis.horizontal,
                                 physics: const BouncingScrollPhysics(),
-                                padding: const EdgeInsets.symmetric(horizontal: pad),
+                                padding: EdgeInsets.zero,
                                 itemCount: count,
                                 itemBuilder: (context, index) {
-                                  final h = b!.hours[index];
+                                  final h = list[index < list.length ? index : (list.length - 1)];
+                                  final hh = DateTime(h.time.year, h.time.month, h.time.day, h.time.hour);
                                   return SizedBox(
                                     width: slotW,
                                     child: Column(
                                       mainAxisAlignment: MainAxisAlignment.center,
                                       children: [
-                                        Text(DateFormat('HH:mm', 'ru').format(h.time),
+                                        Text(DateFormat('HH:00', 'ru').format(hh),
                                             style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12, height: 1.0),
                                             overflow: TextOverflow.fade, softWrap: false),
                                         const SizedBox(height: 2),
@@ -846,21 +886,22 @@ class _WeatherScreenState extends State<WeatherScreen> {
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Text(
-                                    "${_capitalize(dayRu(d.date))}, ${DateFormat('d MMMM', 'ru').format(d.date)} • ${_dayRangeLine(d)}",
+                                    DateFormat('d MMMM', 'ru').format(d.date),
                                     maxLines: 1,
                                     softWrap: false,
                                     textAlign: TextAlign.center,
-                                    style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                                   ),
                                   const SizedBox(height: 4),
                                   Text(
-                                    d.pop != null
-                                        ? "Вероятность осадков: ${(d.pop! * 100).round()}%"
-                                        : "Вероятность осадков: —",
+                                    "${_capitalize(dayRu(d.date))} • ${_dayRangeLine(d)} • " +
+                                        (d.pop != null
+                                            ? "Вероятность осадков: ${(d.pop! * 100).round()}%"
+                                            : "Вероятность осадков: —"),
                                     maxLines: 1,
                                     softWrap: false,
                                     textAlign: TextAlign.center,
-                                    style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Colors.white70),
+                                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                                   ),
                                 ],
                               ),
@@ -1019,13 +1060,9 @@ class _WeatherScreenState extends State<WeatherScreen> {
                                   onPressed: busy
                                       ? null
                                       : () async {
-                                    setSheetState(() {
-                                      busy = true;
-                                    });
+                                    setSheetState(() { busy = true; });
                                     final ok = await _detectCityByGPS();
-                                    setSheetState(() {
-                                      busy = false;
-                                    });
+                                    setSheetState(() { busy = false; });
                                     if (ok && Navigator.of(bottomCtx).canPop()) {
                                       Navigator.of(bottomCtx).pop();
                                     }
@@ -1063,19 +1100,11 @@ class _WeatherScreenState extends State<WeatherScreen> {
                               final path = _avatarFor(id);
                               final isSelected = id == characterId;
                               return GestureDetector(
-                                onTap: busy
-                                    ? null
-                                    : () async {
-                                  setSheetState(() {
-                                    busy = true;
-                                  });
-                                  setState(() {
-                                    characterId = id;
-                                  });
+                                onTap: busy ? null : () async {
+                                  setSheetState(() { busy = true; });
+                                  setState(() { characterId = id; });
                                   await _saveSelectedCharacter(id);
-                                  setSheetState(() {
-                                    busy = false;
-                                  });
+                                  setSheetState(() { busy = false; });
                                   if (Navigator.of(bottomCtx).canPop()) Navigator.of(bottomCtx).pop();
                                 },
                                 child: ClipRRect(
@@ -1087,8 +1116,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
                                       if (isSelected)
                                         Container(
                                           color: Colors.black.withOpacity(0.25),
-                                          child: const Center(
-                                              child: Icon(Icons.check_circle, color: Colors.white, size: 28)),
+                                          child: const Center(child: Icon(Icons.check_circle, color: Colors.white, size: 28)),
                                         ),
                                     ],
                                   ),
@@ -1101,9 +1129,7 @@ class _WeatherScreenState extends State<WeatherScreen> {
                     ),
                   ),
                   if (busy)
-                    Positioned.fill(
-                        child: Container(
-                            color: Colors.black26, child: const Center(child: CircularProgressIndicator()))),
+                    Positioned.fill(child: Container(color: Colors.black26, child: const Center(child: CircularProgressIndicator()))),
                 ],
               ),
             );
@@ -1248,24 +1274,14 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () async {
       if (!mounted) return;
-      setState(() {
-        _loading = true;
-      });
+      setState(() { _loading = true; });
       try {
         final list = await widget.repo.suggestCities(q);
-        setState(() {
-          _items = list;
-        });
+        setState(() { _items = list; });
       } catch (_) {
-        setState(() {
-          _items = [];
-        });
+        setState(() { _items = []; });
       } finally {
-        if (mounted) {
-          setState(() {
-            _loading = false;
-          });
-        }
+        if (mounted) setState(() { _loading = false; });
       }
     });
   }
@@ -1305,9 +1321,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
                   if (_items.isNotEmpty) {
                     Navigator.pop(context, _items.first);
                   } else {
-                    setState(() {
-                      _error = "Город не найден";
-                    });
+                    setState(() { _error = "Город не найден"; });
                   }
                 },
               ),
@@ -1322,8 +1336,7 @@ class _CitySearchSheetState extends State<_CitySearchSheet> {
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(maxHeight: 300),
                   child: _items.isEmpty && !_loading
-                      ? const Center(
-                      child: Text("Начните вводить название города", style: TextStyle(color: Colors.white70)))
+                      ? const Center(child: Text("Начните вводить название города", style: TextStyle(color: Colors.white70)))
                       : ListView.separated(
                     itemCount: _items.length,
                     separatorBuilder: (_, __) => const Divider(color: Colors.white24, height: 1),
